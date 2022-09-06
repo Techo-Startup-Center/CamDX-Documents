@@ -1,0 +1,30 @@
+---
+- name: apt update
+  apt:
+    update_cache: yes
+    cache_valid_time: 3600
+
+- name: Install Nginx
+  apt:
+    name: nginx
+    state: latest
+
+- name: Insert a line to the bottom of nginx.conf
+  lineinfile:
+    path: /etc/nginx/nginx.conf
+    line: include /etc/nginx/passthrough.conf;
+
+- name: delete default nginx site
+  file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+  notify: restart nginx
+
+- name: copy nginx passthrough.conf
+  template:
+    src: passthrough.conf.j2
+    dest: /etc/nginx/passthrough.conf
+    owner: root
+    group: root
+    mode: '0644'
+  notify: restart nginx

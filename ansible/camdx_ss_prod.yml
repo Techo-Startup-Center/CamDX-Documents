@@ -1,0 +1,58 @@
+---
+# This playbook installs CamDX production environment to the defined host inventory from a remote package repository
+
+# Generate Certificate on ansible controller
+- hosts: localhost
+  any_errors_fatal: true
+  roles:
+    - cert-generation
+
+# Nginx
+- hosts: nginx
+  become: yes
+  roles:
+    - pre-installation
+    - nginx
+  tags:
+    - nginx
+
+# Install Security Server Package via remote repository to Master Security Server, Slave Security Server and External Op-monitor
+- hosts: master slaves opmonitor
+  become: yes
+  roles:
+    - pre-installation
+    - xroad-ss
+  tags:
+    - ss
+  vars_files:
+    - vars_files/remote_repo.yml
+    - vars_files/ss_database.yml
+
+# Configure Slaves for Security Server Cluster
+- hosts: slaves
+  become: yes
+  roles:
+      - node
+      - ssh
+
+# Configure Master for Security Server Cluster
+- hosts: master
+  become: yes
+  roles:
+      - node
+      - ssh_server
+      - master
+
+# Configure Slaves for Security Server Cluster
+- hosts: slaves
+  become: yes
+  roles:
+      - slave
+
+# Configure External Opmonitor
+- hosts: opmonitor
+  become: yes
+  roles:
+    - camdx-op-monitor
+  tags:
+    - op-mon

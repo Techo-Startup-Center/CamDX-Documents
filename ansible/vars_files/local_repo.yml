@@ -1,0 +1,3 @@
+---
+package_source: "local"
+ubuntu_apt_repo: "deb [trusted=yes] file:///home/{{inventory_hostname.split('.')[0]}} /"

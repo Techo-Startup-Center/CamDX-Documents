@@ -1,0 +1,44 @@
+---
+- name: install xroad-opmonitor packages
+  apt:
+      name: "xroad-opmonitor"
+      state: latest
+      force: yes
+  tags:
+    - install-xroad-opmonitor-packages
+
+- name: stop and disable services
+  service:
+      name: "{{ item }}"
+      state: stopped
+      enabled: false
+  with_items:
+      - xroad-proxy
+      - xroad-jetty
+      - xroad-monitor
+
+- name: local.ini for opmonitor
+  ini_file:
+      dest: /etc/xroad/conf.d/local.ini
+      section: op-monitor
+      option: "{{ item.option }}"
+      value: "{{ item.value }}"
+      create: true
+      mode: 0640
+      owner: xroad
+      group: xroad
+  with_items:
+      - { option: "keep-records-for-days", value: "30" }
+      - { option: "host", value: "0.0.0.0" }
+
+- name: download configuration anchor
+  get_url:
+      url: http://repository.camdx.gov.kh/repository/camdx-anchors/anchors/CAMBODIA_configuration_anchor.xml
+      dest: /etc/xroad/configuration_anchor.xml
+      owner: xroad
+      group: xroad
+
+- name: restart xroad-opmonitor service
+  service:
+      name: "xroad-opmonitor"
+      state: restarted

@@ -1,0 +1,11 @@
+---
+
+- name: Copy bionic DEB packages (Ubuntu)
+  become: yes
+  copy: src="../repo/ubuntu18.04/" dest="/xroad/"
+  when: ubuntu_releasever == "bionic"
+
+- name: Copy focal DEB packages (Ubuntu)
+  become: yes
+  copy: src="../repo/ubuntu20.04/" dest="/xroad/"
+  when: ubuntu_releasever == "focal"

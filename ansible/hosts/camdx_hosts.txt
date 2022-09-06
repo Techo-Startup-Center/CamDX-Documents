@@ -1,0 +1,21 @@
+#if the sudo password for each instance are different, host variable "ansible_sudo_pass" should be specified
+[master]
+<ss1.camdx.gov.kh> nodename=master ansible_ssh_user=<ss1> ansible_ssh_pass=<Passw0rd>
+
+[slaves]
+<ss2.camdx.gov.kh> nodename=slave1 ansible_ssh_user=<ss2> ansible_ssh_pass=<Passw0rd>
+<ss3.camdx.gov.kh> nodename=slave2 ansible_ssh_user=<ss3> ansible_ssh_pass=<Passw0rd>
+
+[opmonitor]
+<opmon.camdx.gov.kh> ansible_ssh_user=<mss> ansible_ssh_pass=<Passw0rd>
+
+[nginx]
+<ss.camdx.gov.kh> ansible_ssh_user=<sslb> ansible_ssh_pass=<Passw0rd>
+
+[ss_cluster:children]
+master
+slaves
+
+[ss_cluster:vars]
+xroad_ui_user=camdx-systemadmin
+xroad_ui_user_password=$6$fuX4OSfFGqXwImfk$wXqOH1oSyIqzoasVPjdvMcQSLgxEGebP6ApGMhwXPpgwBnFyslppqQih0uR06AEW2AQHEDkZFiHrTHDFujSfV/

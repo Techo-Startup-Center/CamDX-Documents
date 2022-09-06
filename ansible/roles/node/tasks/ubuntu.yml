@@ -1,0 +1,15 @@
+---
+- name: create the database
+  become: yes
+  become_user: postgres
+  command: pg_createcluster -p "{{ serverconf_db_port }}" "{{ postgresql_major_version }}" serverconf
+  args:
+    creates: "/var/lib/postgresql/{{ postgresql_major_version }}/serverconf"
+
+- set_fact:
+    postgresql_data_dir: "/var/lib/postgresql/{{ postgresql_major_version }}/serverconf"
+    postgresql_config_dir: "/etc/postgresql/{{ postgresql_major_version }}/serverconf"
+
+- set_fact:
+    postgresql_serverconf_service: "postgresql@{{ postgresql_major_version }}-serverconf"
+  when: ansible_distribution_release == "bionic" or ansible_distribution_release == "focal"

@@ -1,0 +1,19 @@
+---
+#controls lxd versions, if changed, check epel version and repo urls
+centos_releasever: 7
+ubuntu_releasever: bionic
+
+# serverconf database password for local connections
+serverconf_password: serverconf
+
+# serverconf_admin database password for local connections
+serverconf_admin_password: serverconf_admin
+
+# postgresql port for the separate serverconf instance
+serverconf_db_port: 5433
+
+# ssh user for configuration replication
+xroad_slave_ssh_user: xroad-slave
+
+# proxy health check interface port (0 disables)
+xroad_proxy_health_check_port: 5588

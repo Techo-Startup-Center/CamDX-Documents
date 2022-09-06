@@ -1,0 +1,56 @@
+---
+- name: configure slave serverconf db
+  import_tasks: serverconf_slave_db.yml
+
+- name: do initial configuration sync
+  become_user: xroad
+  become: yes
+  command: rsync -e "ssh -o StrictHostKeyChecking=no" -aqz --delete-delay --exclude "/db.properties" --exclude "/conf.d/node.ini" --exclude "*.tmp" --exclude "/postgresql" --exclude "/nginx" --exclude "/backup.d" "{{ xroad_slave_ssh_user }}@{{ hostvars[groups.master[0]].inventory_hostname }}":/etc/xroad/ /etc/xroad/
+
+- name: install configuration sync
+  include_tasks: "{{ ansible_distribution | lower }}.yml"
+
+- name: setup sync log rotation
+  copy:
+      src: "xroad-slave-sync.logrotate"
+      dest: "/etc/logrotate.d/xroad-slave-sync"
+
+- name: enable slave role for node
+  ini_file: dest=/etc/xroad/conf.d/node.ini
+            section=node
+            option=type
+            value=slave
+            create=true
+            mode=0640
+            owner=xroad
+            group=xroad
+
+- name: install opmonitor and proxymonitor addon
+  apt:
+    name:
+      - xroad-addon-opmonitoring
+      - xroad-addon-proxymonitor
+    state: latest
+
+- name: start services
+  service:
+      name: "{{ item }}"
+      state: started
+  with_items:
+      - xroad-proxy
+      - xroad-confclient
+      - xroad-signer
+      - xroad-jetty
+
+- name: remove UI editor groups
+  group:
+      name: "{{ item }}"
+      state: absent
+  with_items: "{{ ui_editor_groups }}"
+  tags: remove_editor_groups
+
+- name: stop and disable opmonitor on slave
+  service:
+      name: xroad-opmonitor
+      state: stopped
+      enabled: false

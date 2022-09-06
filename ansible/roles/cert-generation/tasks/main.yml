@@ -1,0 +1,20 @@
+---
+- name: self-signed ca
+  shell: ./init.sh
+  args:
+    chdir: ca/
+    creates: ca.key
+
+- name: sign master certificate
+  shell: ./add-node.sh {{ hostvars[item].nodename | quote }}
+  args:
+    chdir: ca/
+    removes: ca.key
+  with_items: "{{ groups['master'] }}"
+
+- name: sign slave certificate
+  shell: ./add-node.sh {{ hostvars[item].nodename | quote }}
+  args:
+    chdir: ca/
+    removes: ca.key
+  with_items: "{{ groups['slaves'] }}"

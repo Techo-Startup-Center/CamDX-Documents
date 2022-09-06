@@ -1,0 +1,48 @@
+---
+- name: setup master database
+  import_tasks: serverconf_master_db.yml
+
+- name: enable master role for node
+  ini_file: dest=/etc/xroad/conf.d/node.ini
+            section=node
+            option=type
+            value=master
+            create=true
+            mode=0640
+            owner=xroad
+            group=xroad
+            
+- name: enable master role for op-monitor
+  ini_file: 
+    dest: /etc/xroad/conf.d/local.ini
+    section: op-monitor
+    option: host
+    value: "{{ hostvars[groups.opmonitor[0]].inventory_hostname }}"
+
+- name: install opmonitor and proxymonitor addon
+  apt:
+    name:
+      - xroad-addon-opmonitoring
+      - xroad-addon-proxymonitor
+    state: latest
+
+- name: start services
+  service:
+      name: "{{ item }}"
+      state: started
+  with_items:
+      - xroad-proxy
+      - xroad-confclient
+      - xroad-signer
+      - xroad-jetty
+
+- name: restart opmonitor on master
+  service:
+      name: xroad-opmonitor
+      state: restarted
+
+- name: stop and disable opmonitor on master
+  service:
+      name: xroad-opmonitor
+      state: stopped
+      enabled: false

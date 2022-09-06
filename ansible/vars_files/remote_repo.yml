@@ -1,0 +1,15 @@
+---
+package_source: "remote"
+
+xroad_repo_baseurl: "http://repository.camdx.gov.kh/repository"
+xroad_repo_key:  "http://repository.camdx.gov.kh/repository/camdx-anchors/api/gpg/key/0x04194DBF-pub.asc"
+
+ubuntu_apt_key:  "{{xroad_repo_key}}"
+ubuntu_repo_url: "{{xroad_repo_baseurl}}/camdx-release"
+ubuntu_apt_repo: "deb [arch=all,amd64] {{ubuntu_repo_url}} {{ansible_distribution_release}} main"
+
+rhel_repo_baseurl: "{{xroad_repo_baseurl}}/xroad-release-rpm/rhel/{{ansible_distribution_major_version}}/current"
+rhel_repo_gpgcheck: "yes"
+rhel_repo_gpgkey: "{{xroad_repo_key}}"
+rhel_repo_repogpgcheck: "yes"
+rhel_repo_metadataexpire: "21600"
