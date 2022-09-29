@@ -593,8 +593,8 @@ host = 0.0.0.0
 ```bash
 wget http://repository.camdx.gov.kh/repository/camdx-anchors/anchors/CAMBODIA_configuration_anchor.xml
 
-sudo mv CAMBODIA_configuration_anchor.xml configuration_anchor.xml
-sudo chown -Rf xroad:xroad configuration_anchor
+sudo mv CAMBODIA_configuration_anchor.xml /etc/xroad/configuration-anchor.xml
+sudo chown -Rf xroad:xroad /etc/xroad/configuration-anchor
 sudo systemctl restart xroad-opmonitor
 ```
 ### 5.4 Configure Master node for External Operational Monitoring
