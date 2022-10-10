@@ -627,4 +627,4 @@ sudo systemctl restart xroad-opmonitor
 ```
 ## 6 REFERENCES
 
-X-Road/ig-ss_x-road_v6_security_server_installation_guide.md at camdx-6.23.0 · CamDX/X-Road. (2022). Retrieved 26 May 2022, from <https://github.com/CamDX/X-Road/blob/camdx-6.23.0/doc/Manuals/ig-ss_x-road_v6_security_server_installation_guide.md> 
+X-Road/ig-ss_x-road_v6_security_server_installation_guide.md at camdx-6.23.0 · CamDX/X-Road. (2022). Retrieved 26 May 2022, from <https://github.com/Techo-Startup-Center/CamDX/blob/camdx-6.23.0/doc/Manuals/ig-ss_x-road_v6_security_server_installation_guide.md>
