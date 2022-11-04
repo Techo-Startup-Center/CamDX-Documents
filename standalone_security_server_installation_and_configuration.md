@@ -132,6 +132,8 @@ The network diagram below provides an example of a basic Security Server setup. 
 |Central Server|103.63.190.230	<br>103.63.190.232	|206.189.151.1|
 |Central Monitoring Server|103.63.190.227	||
 |Management Security Server|103.63.190.231	<br>103.63.190.233	|178.128.122.111|
+|Timestamping Service|103.63.190.229|103.216.51.117|
+|OCSP Service|103.63.190.229|103.216.51.117|
 
 ## 2 INSTALLATION
 ### 2.1 CamDX Security Server Built Packages
