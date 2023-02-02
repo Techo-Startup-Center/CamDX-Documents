@@ -281,9 +281,7 @@ sudo -i
 cd /var/lib/postgresql/10/serverconf
 sudo rm -rf *
 
-sudo -u postgres PGSSLMODE=verify-ca PGSSLROOTCERT=/etc/xroad/postgresql/ca.crt PGSSLCERT=/etc/xroad/postgresql/server_ss2.crt PGSSLKEY=/etc/xroad/postgresql/server_ss2.key
-
-pg_basebackup -h fqdn_of_ss_master -p 5433 -U ss2 -D .
+sudo -u postgres PGSSLMODE=verify-ca PGSSLROOTCERT=/etc/xroad/postgresql/ca.crt PGSSLCERT=/etc/xroad/postgresql/server_ss2.crt PGSSLKEY=/etc/xroad/postgresql/server_ss2.key pg_basebackup -h fqdn_of_ss_master -p 5433 -U ss2 -D .
 
 sudo vim recovery.conf
 ```
