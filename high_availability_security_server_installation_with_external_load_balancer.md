@@ -547,7 +547,7 @@ root@slave# systemctl disable xroad-opmonitor
 
 ## 6. CONFIGURATION
 
-Configure Security Server **Master Node** by following the configuration section in [standalone_security_server_installation_and_configuration.md](https://github.com/Techo-Startup-Center/CamDX-Documentation/blob/main/standalone_security_server_installation_and_configuration.md#4-configuration)
+Configure Security Server **Master Node** by following the configuration section in [standalone_security_server_installation_and_configuration.md](https://github.com/Techo-Startup-Center/CamDX-Documents/blob/main/standalone_security_server_installation_and_configuration.md#4-configuration)
 
 ## 7. REFERENCES
 
