@@ -1,6 +1,6 @@
-# STANDALONE SECURITY SERVER INSTALLATION AND CONFIGURATION
+# Security Server Installation Guide for Ubuntu
 
-July 2022
+X-ROAD 7.2.2
 
 Standalone Security Server Installation and Configuration
 
@@ -8,7 +8,8 @@ Standalone Security Server Installation and Configuration
 
 |Release no|Author|Date|Brief summary of changes|
 | :- | :- | :- | :- |
-|v1.0.0|Camdx Operator|July 2022||
+|v1.0.0|CamDX Operator|July 2022||
+|v2.0.0|CamDX Operator|May 2023|Update support for Ubuntu 22.04 LTS|
 
 ## Table of Contents <!-- omit in toc -->
 
@@ -24,19 +25,21 @@ Standalone Security Server Installation and Configuration
 
   - [1.4	Network Diagram](#14-network-diagram)
 
-  - [1.5	CamDX Central Authority IP for Whitelisting](#15-camdx-central-authority-ip-for-whitelisting)
+  - [1.5	CamDX Central Authority IPs](#15-camdx-central-authority-ips)
 
 - [2.	INSTALLATION](#2-installation)
 
   - [2.1	CamDX Security Server Built Packages](#21-camdx-security-server-built-packages)
 
-  - [2.2	Remote Database (Optional)](#22-remote-database-(optional))
+  - [2.2	Remote Database (Optional)](#22-remote-database-optional)
 
-  - [2.3	Install the CamDX Package](#23-install-the-camdx-package)
+  - [2.3	Install the Security Server Package](#23-install-the-security-server-package)
 
 - [3.	POST INSTALLATION](#3-post-installation)
 
   - [3.1	Services Check](#31-services-check)
+  
+  - [3.2 For High-availability Security Server setup with external load balancer and Opmonitor](#32-for-high-availability-security-server-setup-with-external-load-balancer-and-opmonitor)
 
 - [4.	CONFIGURATION](#4-configuration)
 
@@ -52,21 +55,15 @@ Standalone Security Server Installation and Configuration
 
   - [4.6	CONFIGURING THE TIME-STAMPING SERVICE](#46-configuring-the-time-stamping-service)
 
-  - [4.7	Sign and Auth Certificates](#47-sign-and-auth-certificates)
+  - [4.7	SIGNING AND AUTHENTICATION KEYS](#47-signing-and-authentication-keys)
 
-  - [4.8	Importing the certificates](#48-importing-the-certificates)
+  - [4.8	IMPORTING THE CERTIFICATES](#48-importing-the-certificates)
 
   - [4.9	REGISTERING THE AUTHENTICATION CERTIFICATE](#49-registering-the-authentication-certificate)
 
   - [4.10	ADDING A SUBSYSTEM TO SECURITY SERVER](#410-adding-a-subsystem-to-security-server)
 
-  - [4.11	ADDING CERTIFICATE FOR TLS CONNECTION BETWEEN INFORMATION SYSTEM AND SECURITY SERVER](#411-adding-certificate-for-tls-connection-between-information-system-and-security-server)
-
-  - [4.12	ADDING A NEW SERVICE TO THE SUBSYSTEM](#412-adding-a-new-service-to-the-subsystem)
-
-  - [4.13	ADDING CERTIFICATE FOR TLS CONNECTION BETWEEN CONSUMER SYSTEM AND SECURITY SERVER](#413-adding-certificate-for-tls-connection-between-consumer-system-and-security-server)
-
-  - [4.14	ACCESS THE OPEN API](#414-access-the-open-api)
+  - [4.11	CONSUME API](#411-consume-api)
 
 - [5.	COMMANDS USED](#5-commands-used)
 
@@ -76,17 +73,18 @@ Standalone Security Server Installation and Configuration
 
 ## 1 SECURITY SERVER REQUIREMENT
 ### 1.1 Hardware Requirement
-- CPU: 64-bit dual-core Intel
+- The server’s hardware (motherboard, CPU, network interface cards, storage system) must be supported by Ubuntu in general
+- CPU: 2
 - RAM: 4GB
+- DISK: 100GB
 - Network Card: 100 Mbps
 ### 1.2 Software
-- Operating System: Ubuntu 18.04 LTS x86-64
-  - Add System User 
+- Operating System: Ubuntu 22.04 LTS x86-64
+  - Add System Administrator user (do not use user name "xroad", it is reserved fo the X-Road system user)
 ```bash
 sudo adduser camdx-systemadmin
 ```
-- Set the operating system locale.
-  - Add following line to the /etc/environment.
+- Set the operating system locale. Add following line to the /etc/environment file.
 ```bash
 LC_ALL=en_US.UTF-8
 ```
@@ -94,28 +92,32 @@ LC_ALL=en_US.UTF-8
 ```bash
 sudo apt-get install locales software-properties-common
 ```
+- Ensure that the locale is available
+```
+sudo locale-gen en_US.UTF-8
+```
 - Ensure that the timezone is set to Asia/Phnom_Penh – timedatectl
 ```bash
 sudo timedatectl set-timezone Asia/Phnom_Penh
 ```
 ### 1.3 Network Ports
-It is strongly recommended to protect the security server from unwanted access using a firewall (hardware or software based). The firewall can be applied to both incoming and outgoing connections depending on the security requirements of the environment where the security server is deployed. It is recommended to allow incoming traffic to specific ports only from explicitly defined sources using IP filtering. Special attention should be paid with the firewall configuration since incorrect configuration may leave the security server vulnerable to exploits and attacks.
+It is strongly recommended to protect the security server from unwanted access using a firewall (hardware or software based). The firewall can be applied to both incoming and outgoing connections depending on the security requirements of the environment where the security server is deployed. It is recommended to allow incoming traffic to specific ports only from explicitly defined sources using IP filtering.
 
 The table below lists the required connections between different components.
 
 |Connection Type|Source|Target|Target Ports|Protocol|Note|
 | :-: | :-: | :-: | :-: | :-: | :-: |
-|Out|Security Server|Central Server|80, 4001|tcp||
+|Out|Security Server|Central Server|443, 4001|tcp||
 |Out|Security Server|Management Security Server|5500, 5577|tcp||
-|Out|Security Server|OCSP Service|80 / 443|tcp||
-|Out|Security Server|Timestamping Service|80 / 443|tcp||
+|Out|Security Server|OCSP Service|443|tcp||
+|Out|Security Server|Timestamping Service|443|tcp||
 |Out|Security Server|Data Exchange Partner Security Server (Service Producer)|5500, 5577|tcp||
 |Out|Security Server|Producer Information System|80, 443, other|tcp|Target in the internal network|
-|In|Monitoring Security Server|Security Server|5500, 5577|tcp||
+|In|Monitoring Security Server|Security Server|5500, 5577|tcp|This is only required in Production|
 |In|Data Exchange Partner Security Server (Service Consumer)|Security Server|5500, 5577|tcp||
 |In|Consumer Information System|Security Server|80, 443|tcp|Source in the internal network|
 |In|Admin|Security Server|4000|tcp|Source in the internal network|
-
+|In|Security Server|Opmonitor Server|2080|tcp|Source in the internal network|
 <p align="center"> TABLE 1 – NETWORK PORTS </p>
 
 ### 1.4 Network Diagram
@@ -124,42 +126,47 @@ The network diagram below provides an example of a basic Security Server setup. 
 ![FIGURE 1 – NETWORK DIAGRAM](img/network.png)
 <p align="center"> FIGURE 1 – NETWORK DIAGRAM </p>
 
-### 1.5 CamDX Central Authority IP for Whitelisting
+### 1.5 CamDX Central Authority IPs 
 
 
-|Type|CamDX - Production|CamDX - Dev|
+|Type|CamDX - Production|CamDX - Development|
 | :- | :- | :- |
-|Central Server|103.63.190.230	<br>103.63.190.232	|206.189.151.1|
-|Central Monitoring Server|103.63.190.227	||
-|Management Security Server|103.63.190.231	<br>103.63.190.233	|178.128.122.111|
-|Timestamping Service|103.63.190.229|103.216.51.117|
-|OCSP Service|103.63.190.229|103.216.51.117|
+|Central Server|103.63.190.230 (4001 & 443/tcp)	<br>103.63.190.232 (4001 & 443/tcp)	|206.189.151.1 (4001 & 443/tcp) <br>103.63.190.238 (4001 & 443/tcp)|
+|Central Monitoring Server|103.63.190.227	(5500 & 5577/tcp)||
+|Management Security Server|103.63.190.231 (5500 & 5577/tcp) <br>103.63.190.233	(5500 & 5577/tcp)|178.128.122.111 (5500 & 5577/tcp)|
+|Timestamping Service|103.63.190.229 (443/tcp)|103.216.51.117 (10000/tcp)|
+|OCSP Service|103.63.190.229 (443/tcp)|103.216.51.117 (10000/tcp)|
 
 ## 2 INSTALLATION
 ### 2.1 CamDX Security Server Built Packages
 - Add Repository to /etc/apt/sources.list:
 ```bash
-echo deb [arch=all,amd64] http://repository.camdx.gov.kh/repository/camdx-release bionic main | sudo tee -a /etc/apt/sources.list
+echo deb [arch=all,amd64] https://repository.camdx.gov.kh/repository/camdx-release jammy main | sudo tee -a /etc/apt/sources.list
 ```
 - Add Signing Key:
 ```bash
-curl http://repository.camdx.gov.kh/repository/camdx-anchors/api/gpg/key/0x04194DBF-pub.asc | sudo apt-key add -
+curl https://repository.camdx.gov.kh/repository/camdx-anchors/api/gpg/key/0x04194DBF-pub.asc | sudo apt-key add -
+```
+- Update package repository metadata:
+```
+sudo apt update
 ```
 ### 2.2 Remote Database (Optional)
-if you want to use remote database server instead of the default locally installed one, you need to pre-create configuration file containing the database administrator master password. This can be done by performing the following steps:
+*This is an optional step.*
+
+Optionally, the security server can use a remote database server. To avoid installing the default local PostgreSQL server during security server installation, first install the `xroad-database-remote`-package:
 ```bash
-sudo touch /etc/xroad.properties
-sudo chown root:root /etc/xroad.properties
-sudo chmod 600 /etc/xroad.properties
+sudo apt install xroad-database-remote
 ```
-Edit /etc/xroad.properties contents.
+Verify connection to the remote PostgreSQL: (pay close attention to their version)
 ```bash
-postgres.connection.password = 54F46A19E50C11DA8631468CF09BE5DB
+psql --version
+psql -h <database host> -U <superuser> -tAc 'show server_version'
 ```
-### 2.3 Install the CamDX Package
+### 2.3 Install the Security Server Package
 ```bash
-sudo apt-get update
-sudo apt-get install xroad-securityserver
+sudo apt update
+sudo apt install xroad-securityserver
 ```
 Upon the first installation of the packages, the system asks for the following information.
 
@@ -210,51 +217,53 @@ The Distinguished Name of the owner of the TLS certificate that is used for secu
 
 ## 3 POST-INSTALLATION
 ### 3.1 Services Check
+The installation is successful if system services are started and the user interface is responding.
+- Ensure from the command line that X-Road services are in the running state (example output follows):
+
 ```bash
 sudo systemctl list-units "xroad-*"
 
-  - UNIT                     		LOAD   	ACTIVE 	SUB     	DESCRIPTION
-  - xroad-confclient.service 	loaded 	active 		running 	X-Road confclient
-  - xroad-jetty.service      	loaded 	active 		running 	X-Road Jetty server
-  - xroad-monitor.service    	loaded 	active 		running 	X-Road Monitor
-  - xroad-proxy.service      	loaded 	active 		running 	X-Road Proxy
-  - xroad-signer.service     	loaded 	active 		running 	X-Road signer
+  - UNIT                              LOAD   	ACTIVE 	  SUB     	DESCRIPTION
+  - xroad-addon-messagelog.service    loaded    active    running       X-Road Messagelog Archiver
+  - xroad-base.service                loaded    active    exited        X-Road initialization
+  - xroad-confclient.service 	      loaded 	active 	  running 	X-Road confclient
+  - xroad-monitor.service    	      loaded 	active 	  running 	X-Road Monitor
+  - xroad-proxy-ui-api.service        loaded    active    running       X-Road Proxy UI REST API
+  - xroad-proxy.service      	      loaded 	active 	  running 	X-Road Proxy
+  - xroad-signer.service     	      loaded 	active 	  running 	X-Road signer
 ```
-Install xroad-addon-proxymonitor & xroad-addon-opmonitoring
+
+(skip this 3.2 if you're installing a standalone security server)
+
+### 3.2 For High-availability Security Server setup with external load balancer and Opmonitor
+
+Install xroad-addon-proxymonitor & xroad-addon-opmonitoring on both Master and Slave Security Server node then proceed to [high_availability_security_server_installation_with_external_load_balancer.md](https://github.com/Techo-Startup-Center/CamDX-Documentation/blob/main/standalone_security_server_installation_and_configuration.md)
 ```bash
 sudo apt install xroad-addon-proxymonitor
 sudo apt install xroad-addon-opmonitoring
 sudo systemctl restart xroad-opmonitor
 ```
-Ensure that the security server user interface at <https://SECURITYSERVER_IP:4000> can be opened in a Web browser.
+
+
+Ensure that the security server user interface at <https://SECURITYSERVER_IP:4000> can be opened in a Web browser. To log in, use the account name chosed during the installation. The web browser may display a connection refused -error while the user interface is still starting up.
 
 ## 4 CONFIGURATION
 ### 4.1 SECURITY SERVER MEMBER INFORMATION
-- Member Information will be provided by CamDX Central Authority
+- Member Information will be provided by CamDX Central Authority as part of the member regisration process
 
-
-|DEVELOPMENT ENVIRONMENT||
-|-|-|
-|Member Name|Techo Startup Center |
-|Member Class|GOV|
-|Member Code|DEV00001|
-
-TABLE 2 – MEMBER INFORMATION IN DEVELOPMENT ENVIRONMENT
-
-
-|PRODUCTION ENVIRONMENT||
+||Member Information|
 |-|-|
 |Member Name|COMPANY1 CO., LTD. |
 |Member Class|COM|
-|Member Code|PRO00001|
+|Member Code|CAMDEV21231832|
 
-TABLE 3 – MEMBER INFORMATION IN PRODUCTION ENVIRONMENT
+TABLE 2 – MEMBER INFORMATION IN PRODUCTION ENVIRONMENT
 
 - Member Name in this example are Techo Startup Center and Company1 Co., Ltd.
 - Member Code will be provided
 ### 4.2 ACCESS TO SECURITY SERVER ADMIN INTERFACE
 - URL: 	<https://SECURITY_SERVER_IP:4000> 
-- ID: 		camdx-systemadmin or <YOUR_USERSYSTEMADMIN>
+- ID: 		camdx-systemadmin or <YOUR_SYSTEMADMINUSER>
 - Password: 	<YOUR_PASSWORD>
 ### 4.3 CONFIGURATION ANCHOR
 - The Anchor Configuration file will be provided by CamDX Central Authority 
@@ -263,8 +272,8 @@ TABLE 3 – MEMBER INFORMATION IN PRODUCTION ENVIRONMENT
 
 |ENVIRONMENT||
 | :- | :- |
-|[DEV](http://repository.camdx.gov.kh/repository/camdx-anchors/anchors/dev/CAMBODIA_configuration_anchor_dev.xml)|http://repository.camdx.gov.kh/repository/camdx-anchors/anchors/dev/CAMBODIA_configuration_anchor_dev.xml|
-|[PRODUCTION](http://repository.camdx.gov.kh/repository/camdx-anchors/anchors/CAMBODIA_configuration_anchor.xml)|http://repository.camdx.gov.kh/repository/camdx-anchors/anchors/CAMBODIA_configuration_anchor.xml|
+|[DEV](https://repository.camdx.gov.kh/repository/camdx-anchors/anchors/dev/CAMBODIA_configuration_anchor_dev.xml)|https://repository.camdx.gov.kh/repository/camdx-anchors/anchors/dev/CAMBODIA_configuration_anchor_dev.xml|
+|[PRODUCTION](https://repository.camdx.gov.kh/repository/camdx-anchors/anchors/CAMBODIA_configuration_anchor.xml)|https://repository.camdx.gov.kh/repository/camdx-anchors/anchors/CAMBODIA_configuration_anchor.xml|
 
 - Upload the Configuration Anchor File
 
@@ -282,13 +291,13 @@ With the provided Member Information, fill out the initial configuration page
 |-|-|
 |Member Name|COMPANY1 CO., LTD.|
 |Member Class|COM|
-|Member Code|PRO00001|
+|Member Code|CAMDEV21231832|
 
 <p align="center"> FIGURE 9 – INITIAL CONFIGURATION </p>
 
 ### 4.5 ENTERING THE PIN CODE
 
-Enter the PIN Code (Software Token) from the Initial Configuration. Click on the “Please enter softtoken PIN” or Navigate through the left panel – Management – Keys and Certificates, to enter the PIN.
+Enter the PIN Code (Software Token) from the Initial Configuration. Click on the “Please enter softtoken PIN” or Navigate through the top panel – Keys and Certificates, on TOKEN - Login to enter the PIN.
 
 
 ![img](img/config-enter-pin.png)
@@ -304,31 +313,30 @@ Enter the PIN Code (Software Token) from the Initial Configuration. Click on the
 <p align="center"> FIGURE 12 – ENTER PIN CODE 3 </p>
 
 ### 4.6 CONFIGURING THE TIME-STAMPING SERVICE
-- Choose System Parameter => Timestamping Services => ADD
+- Settings => Timestamping Services => Add
 - Pick time-stamping service from the list
-- Press OK
+- Add
 
 ![img](img/config-timestamp.png)
 
 <p align="center"> FIGURE 13 – TIMESTAMPING SERVICE </p>
 
-### 4.7 Sign and Auth Certificates
-#### **Auth Certificate**
-- Generate Auth Certificate Private Key
-  - Open Keys and Certificates
-  - Select Token: **softToken-0**
-  - Press **GENERATE KEY**
+### 4.7 SIGNING AND AUTHENTICATION KEYS
+#### **Authentication Key**
+- Keys and certificates:
+  - Select Token: **SOFTTOKEN-0**
+  - **Add Key**
   - Type Label **AuthKey**
-  - Press **OK**
-- Generate Auth Certificate Signing Request
-  - Select **AuthKey**
-  - Press **GENERATE CSR**
-  - Choose Usage: **AUTH**
-  - Choose Certification Service: **CAMDX INTERMEDIATE CA**
+  - Press **Next**
+- CSR details:
+  - Usage: **AUTHENTICATION**
+  - Certification Service: **CAMDX INTERMEDIATE CA**
   - CSR Format: **PEM**
-  - Press **OK**
+  - **Continue**
+- Generate CSR:
+  - Specify Server DNS name (CN): **ss-dev.company1.com.kh**
   - Specify Organization Name (O): **COMPANY1 CO LTD**
-  - Specify Server DNS name (CN): **ss1.company1.com**
+  - **Generate CSR**
 
 ![img](img/config-auth-cert.png)
 
@@ -343,22 +351,22 @@ Enter the PIN Code (Software Token) from the Initial Configuration. Click on the
 
 <p align="center"> FIGURE 16 – GENERATING AUTH CERTIFICATE SIGNING REQUEST 2 </p>
 
-#### **Sign Certificate**
-- Generate Sign Certificate Signing Request
-  - Open Keys and Certificates
-  - Select Token: **softToken-0**
-  - Press **GENERATE KEY**
+#### **Signing Key**
+- Keys and certificates:
+  - Select Token: **SOFTTOKEN-0**
+  - **Add Key**
   - Type Label **SignKey**
-  - Press **OK**
-- Generate Auth Certificate Signing Request
-  - Select **SignKey**
-  - Press **GENERATE CSR**
-  - Choose Usage: **SIGN**
-  - Choose Certification Service: **CAMDX INTERMEDIATE CA**
+  - Press **Next**
+- CSR details:
+  - Usage: **SIGNING**
+  - Client: **CAMBODIA:COM:CAMDEV21231831**
+  - Certification Service: **CAMDX INTERMEDIATE CA**
   - CSR Format: **PEM**
-  - Press **OK**
+  - **Continue**
+- Generate CSR:
   - Specify Organization Name (O): **COMPANY1 CO LTD**
-  - Specify Server DNS name (CN): **ss1.company1.com**
+  - **Generate CSR**
+
 
 ![img](img/config-sign-cert.png)
 
@@ -377,7 +385,7 @@ Enter the PIN Code (Software Token) from the Initial Configuration. Click on the
 #### **Sending the AuthKey and SignKey CSR to CamDX**
 
 - Contact and Send the CSR Files of “AuthKey”, and “SignKey” to CamDX Central Authority
-- Then the CamDX Central Authority will issue the Auth Certificate and Sign Certificate.
+- Then the CamDX Central Authority will issue the Authentication Certificate and Signing Certificate.
 
 ![img](img/config-csrs.png)
 
@@ -387,28 +395,19 @@ Enter the PIN Code (Software Token) from the Initial Configuration. Click on the
 
 <p align="center"> FIGURE 21 – ISSUED CERTIFICATES RECEIVED </p>
 
-### 4.8 Importing the certificates
-- Select the Certificate request under the auth key
-  - Press **IMPORT CERTIFICATE**
-  - Press **Browse**
-  - Press **OK**
+### 4.8 IMPORTING THE CERTIFICATES
+- Keys and certificates
+  - **Import cert.**
+  - **Browse**
+  - **Open**
 
 ![img](img/config-import-auth.png)
 
-<p align="center"> FIGURE 22 – IMPORT AUTH CERTIFICATE </p>
-
-- Select the Certificate request under the sign key
-  - Press **IMPORT CERTIFICATE**
-  - Press **Browse**
-  - Press **OK**
-
-![img](img/config-import-sign.png)
-
-<p align="center"> FIGURE 23 – IMPORT SIGN CERTIFICATE </p>
+<p align="center"> FIGURE 22 – IMPORT CERTIFICATES </p>
 
 ![img](img/config-certs-imported.png)
 
-<p align="center"> FIGURE 24 – STATUS AFTER BOTH CERTIFICATES IMPORTED </p>
+<p align="center"> FIGURE 23 – STATUS AFTER BOTH CERTIFICATES IMPORTED </p>
 
 - The Auth Certificate is disabled by default, so we need to activate it:
   - Select the recently imported Auth Certificate
@@ -416,50 +415,43 @@ Enter the PIN Code (Software Token) from the Initial Configuration. Click on the
 
 ![img](img/config-activate-auth.png)
 
-<p align="center"> FIGURE 25 – ACTIVATE AUTH CERTIFICATE </p>
+<p align="center"> FIGURE 24 – ACTIVATE AUTH CERTIFICATE </p>
 
 ### 4.9 REGISTERING THE AUTHENTICATION CERTIFICATE
 - Select the Auth Certificate
   - Press **REGISTER**
-  - Enter **FQDN  (ss1.company1.com)**
+  - Enter **FQDN  (ss-dev.company1.com.kh)**
   - Press **OK** to submit request
 
 ![img](img/config-send-registration.png)
 
-<p align="center"> FIGURE 26 – SEND REGISTRATION REQUEST </p>
+<p align="center"> FIGURE 25 – SEND REGISTRATION REQUEST </p>
 
 - Status after the request showing status "registration in progress"
 
 ![img](img/config-registration-status.png)
 
-<p align="center"> FIGURE 27 – STATUS REGISTRATION IN PROGRESS </p>
+<p align="center"> FIGURE 26 – STATUS REGISTRATION IN PROGRESS </p>
 
-- Status of the Security Server Client is YELLOW while waiting for the approval.
-
-![img](img/config-registration-pending.png)
-
-<p align="center"> FIGURE 28 – STATUS PENDING APPROVAL </p>
-
-- After the CamDX Central Authority approved the request, the status of the Security Server Client will turn GREEN.
+- After the CamDX Central Authority approved the request.
 
 ![img](img/config-registration-status-approved.png)
 
-<p align="center"> FIGURE 29 – STATUS AFTER THE APPROVAL </p>
+<p align="center"> FIGURE 27 – STATUS AFTER THE APPROVAL </p>
+
+- Double-click on the newly approved subystem "CP1_API" => Internal Servers => Switch to HTTP
 
 ### 4.10 ADDING A SUBSYSTEM TO SECURITY SERVER
 
-For demonstration purpose, there will be two subsystems added to the security server. A subsystem named "**OPEN_API**" will act as a service provider sharing its API while another subsystem named "**CONSUMER**" will be the one to added to the ACL allowing access to the shared API.
+A subsystem named "**CP1_API**" will added and used as a client to consume service.
 
-- Open Security Server Clients
-  - Press **ADD CLIENT**
-  - Press **SELECT CLIENT FROM GLOBAL LIST**
-  - Press **SEARCH**
-  - Select **Member**
-  - Press **OK**
+- **Clients** => **COMPANY1 CO LTD** => **Add subsystem**
+  - Subsystem Code: **CP1_API**
+  - Press **Add subsystem**
 
 ![img](img/config-add-subsystem.png)
 
-<p align="center"> FIGURE 30 – ADD A SUBSYSTEM </p>
+<p align="center"> FIGURE 28 – ADD A SUBSYSTEM </p>
 
 ![img](img/config-add-subsystem2.png)
 
@@ -469,146 +461,27 @@ For demonstration purpose, there will be two subsystems added to the security se
 
 <p align="center"> FIGURE 32 – ADD A SUBSYSTEM 3 </p>
 
-![img](img/config-add-subsystem4.png)
 
-<p align="center"> FIGURE 33 – ADD A SUBSYSTEM 4 </p>
+The status will turn GREEN **"REGISTERED"** after the it is approved by the authority.
 
-In this scenario, the subsystem is a service provider sharing their "**OPEN_API**" (the subsystem code is provided by CamDX Central Authority) to the other CamDX member. The status is YELLOW pending approval from the CamDX Central Authority and will turn GREEN after the approval.
-
-Repeat adding the subsystem "**CONSUMER**".
-
-![img](img/config-add-subsystem5.png)
-
-<p align="center"> FIGURE 34 – ADD A SUBSYSTEM 5 </p>
-
-### 4.11 ADDING CERTIFICATE FOR TLS CONNECTION BETWEEN INFORMATION SYSTEM AND SECURITY SERVER
-
-For demonstration, the open api to expose will be <https://pumiapp.herokuapp.com/pumi/provinces> so we download their certificate and upload to security server.
-
-The Certificate of the Information System will need to be uploaded to the Security Server’s Subsystem named "**OPEN_API**" for TLS connection.
-
-
-![img](img/config-add-tls-to-is.png)
-
-<p align="center"> FIGURE 35 – ADDING TLS CERTIFICATE FOR INFORMATION SYSTEM </p>
-
-
-- Open Security Server Clients
-  - Select **SUBSYSTEM**
-  - Click **Internal Servers**
-  - Press **ADD** at **INTERNAL TLS CERTIFICATES**
-
-
-![img](img/config-add-tls-to-is2.png)
-
-<p align="center"> FIGURE 36 – UPLOAD INFORMATION SYSTEM CERTIFICATE </p>
-
-### 4.12 ADDING A NEW SERVICE TO THE SUBSYSTEM
-- Open Security Server Clients
-  - Select **SUBSYSTEM**
-  - Click **SERVICES**
-    - Press **ADD REST**
-    - Enter **URL & SERVICE CODE**
-    - Press **OK**
-
-![img](img/config-add-service.png)
-
-<p align="center"> FIGURE 37 – ADDING A SERVICE TO SUBSYSTEM </p>
-
-- Select SERVIC CODE => Press **ENABLE**
-
-![img](img/config-enable-service.png)
-
-<p align="center"> FIGURE 38 – ENABLING SERVICE </p>
-
-- Click **+** to expand
-  - Select SERVICE CODE – **"heroku"**
-  - Press **ACCESS RIGHTS**
-  - Press **ADD SUBJECTS**
-  - Press **SEARCH**
-  - Select **"CONSUMER"** to be added to the ACL
-  - Press **ADD SELECTED TO ACL**
-
-![img](img/config-add-subsystem-to-acl.png)
-
-<p align="center"> FIGURE 39 – ADDING SUBSYSTEM TO THE ACL </p>
-
-![img](img/config-add-subsystem-to-acl2.png)
-
-<p align="center"> FIGURE 40 – ADDING SUBSYSTEM TO THE ACL 2 </p>
-
-
-![img](img/config-add-subsystem-to-acl3.png)
-
-<p align="center"> FIGURE 41 – ADDING SUBSYSTEM TO THE ACL 3 </p>
-
-![img](img/config-add-subsystem-to-acl4.png)
-
-<p align="center"> FIGURE 42 – ADDING SUBSYSTEM TO THE ACL 4 </p>
-
-### 4.13 ADDING CERTIFICATE FOR TLS CONNECTION BETWEEN CONSUMER SYSTEM AND SECURITY SERVER
-
-For demonstration purpose, the consumer system’s certificate will be self-signed and upload to the Security Server’s Subsystem named **"CONSUMER"** for TLS connection.
-
-
-![img](img/config-add-tls-to-is-consumer.png)
-
-<p align="center"> FIGURE 43 – ADDING TLS CERTIFICATE FOR INFORMATION SYSTEM </p>
-
-- Open Security Server Clients
-  - Select SUBSYSTEM - **CONSUMER**
-  - Click **Internal Servers**
-  - Press **ADD** at **INTERNAL TLS CERTIFICATES**
-
-![img](img/config-add-tls-to-is-consumer2.png)
-
-<p align="center"> FIGURE 44 – UPLOAD CONSUMER SYSTEM CERTIFICATE </p>
-
-![img](img/config-add-tls-to-is-consumer-upload2.png)
-
-<p align="center"> FIGURE 45 – UPLOAD CONSUMER SYSTEM CERTIFICATE 2 </p>
-
-![img](img/config-add-tls-to-is-consumer-upload3.png)
-
-<p align="center"> FIGURE 46 – UPLOAD CONSUMER SYSTEM CERTIFICATE 3 </p>
-
-### 4.14 ACCESS THE OPEN API
-After all the setup and configuration, we may now access the **OPEN_API** subsystem from the **CONSUMER** subsystem via CamDX Data Exchange Layer.
+### 4.11 CONSUME API
 
 ![img](img/config-access.png)
 
 <p align="center"> FIGURE 47 – ACCESSING OPEN_API </p>
 
-- GET https://ss1.company1.com/r1/CAMBODIA/COM/PRO00001/OPEN_API/heroku
-- Header: X-Road-Client: CAMBODIA/COM/PRO00001/CONSUMER
+- POST http://ss-dev.company1.com.kh/r1/CAMBODIA/GOV/CAMDX-20201222/CAMDIGIKEY_KYC/servicecode
+- Header: X-Road-Client: CAMBODIA/COM/CAMDEV21231832/CP1_API
 
 ![img](img/config-access2.png)
 
-<p align="center"> FIGURE 48 – ACCESSING **OPEN_API** </p>
+<p align="center"> FIGURE 48 – CONSUMING API </p>
 
-- https://ss1.company1.com/r1/ => Request from Security Server Member that was allowed in the ACL 
-- **CAMBODIA/COM/PRO00001/OPEN_API/heroku** => To Access Service “**heroku**” on Subsystem named “**OPEN_API**” of Security Server with Member Code “**PRO00001**” 
-- X-Road-Client: **CAMBODIA/COM/PRO00001/CONSUMER** => ID of Security Server’s Subsystem allowed in the ACL
+- http(s)://ss-dev.company1.com.kh/r1/ => Request via Security Server that was allowed by the data exchange partner
+- **CAMBODIA/COM/CAMDX-20201222/CAMDIGIKEY_KYC/servicecode** => This is provided by the service provider
+- X-Road-Client: **CAMBODIA/COM/CAMDEV21231832/CP1_API** => Client ID
 
-
-
-This looks a bit confusing since both subsystems are on the same security server. Let’s see another scenario of two security server communication.
-
-
-![img](img/config-access3.png)
-
-<p align="center"> FIGURE 49 – SCENARIO 2 ACCESSING OPEN_API </p>
-
-
-This demo-scenario, the communication is between two Security Servers from different organization. The service provider organization is “**Techo Startup Center**” with Subsystem “**OPEN_API**” sharing Service named "**heroku**" and the service consumer organization is "**COMPANY1 CO LTD**" with Subsystem "**CONSUMER**" that was allowed the ACL of "**heroku**" service.
-
-![img](img/config-access4.png)
-
-<p align="center"> FIGURE 50 – SCENARIO 2 ACCESSING OPEN_API </p>
-
-- https://ss1.company1.com/r1/ => Request from Security Server Member that was allowed in the ACL 
-- **CAMBODIA/GOV/CAM00002/OPEN_API/heroku** => To Access Service "**heroku**" on Subsystem named "**OPEN_API**" of Security Server with Member Code "**CAM00002**".
-- X-Road-Client: **CAMBODIA/COM/PRO00001/CONSUMER** => ID of Security Server’s Subsystem allowed in the ACL of service "**heroku**"
+Refer to the API specification documents for more information!
 
 ## 5 COMMANDS USED
 ```bash
@@ -617,15 +490,14 @@ sudo apt upgrade
 sudo timedatectl set-timezone Asia/Phnom_Penh
 sudo adduser camdx-systemadmin
 
-echo deb [arch=all,amd64] http://repository.camdx.gov.kh/repository/camdx-release bionic main | sudo tee -a /etc/apt/sources.list
+echo deb [arch=all,amd64] https://repository.camdx.gov.kh/repository/camdx-release jammy main | sudo tee -a /etc/apt/sources.list
 
-curl http://repository.camdx.gov.kh/repository/camdx-anchors/api/gpg/key/0x04194DBF-pub.asc | sudo apt-key add -
+curl https://repository.camdx.gov.kh/repository/camdx-anchors/api/gpg/key/0x04194DBF-pub.asc | sudo apt-key add -
 
 sudo apt update
 sudo apt install xroad-securityserver
-sudo apt install xroad-addon-proxymonitor
-sudo apt install xroad-addon-opmonitoring
-sudo systemctl restart xroad-opmonitor
+
+sudo systemctl list-units "xroad-*"
 ```
 ## 6 REFERENCES
 
