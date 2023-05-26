@@ -237,7 +237,7 @@ sudo systemctl list-units "xroad-*"
 
 ### 3.2 For High-availability Security Server setup with external load balancer and Opmonitor
 
-Install xroad-addon-proxymonitor & xroad-addon-opmonitoring on both Master and Slave Security Server node then proceed to [high_availability_security_server_installation_with_external_load_balancer.md](https://github.com/Techo-Startup-Center/CamDX-Documentation/blob/main/standalone_security_server_installation_and_configuration.md)
+Install xroad-addon-proxymonitor & xroad-addon-opmonitoring on both Master and Slave Security Server node then proceed to [high_availability_security_server_installation_with_external_load_balancer.md](https://github.com/Techo-Startup-Center/CamDX-Documentation/blob/main/high_availability_security_server_installation_with_external_load_balancer.md)
 ```bash
 sudo apt install xroad-addon-proxymonitor
 sudo apt install xroad-addon-opmonitoring
