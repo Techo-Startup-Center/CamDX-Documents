@@ -520,7 +520,7 @@ root@master# vim /etc/xroad/conf.d/local.ini
 ```
 ```bash
 [op-monitor]
-host = 10.0.10.30              #omonitor_ip_or_domain_name
+host = 10.0.10.30              #opmonitor_ip_or_domain_name
 ```
 *Install xroad-addon-proxymonitor & xroad-addon-opmonitoring - on Master*
 ```bash
