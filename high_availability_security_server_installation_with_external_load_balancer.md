@@ -164,7 +164,7 @@ root@slave# chmod o+x /etc/xroad
 ```
 - Copy certificates and key from Master to Slave
 ```bash
-root@master# scp ca.crt server_ss2.crt server_ss2.key slave@10.0.10.20/home/slave #10.0.10.20 is slave node's IP
+root@master# scp ca.crt server_ss2.crt server_ss2.key slave@10.0.10.20:/home/slave #10.0.10.20 is slave node's IP
 root@slave# mv ca.crt server_ss2.crt server_ss2.key /etc/xroad/postgresql
 root@slave# chown postgres /etc/xroad/postgresql/*
 root@slave# chmod 400 /etc/xroad/postgresql/*
