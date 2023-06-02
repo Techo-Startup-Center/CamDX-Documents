@@ -358,7 +358,7 @@ root@slave# tail /var/log/xroad/slave-sync.log
 ```bash
 root@master# sudo -u postgres psql -p 5433 -c "select * from pg_stat_replication;"
 ```
-A successful replication with two secondary nodes could look like this:
+A successful replication with a slave node could look like this:
 
 | pid  | usesysid | usename  | application_name |  client_addr   | client_hostname | client_port |         backend_start         | backend_xmin |   state   | sent_location | write_location | flush_location | replay_location | sync_priority | sync_state |
 |------|----------|----------|------------------|----------------|-----------------|-------------|-------------------------------|-----------|-----------|---------------|----------------|----------------|-----------------|---------------|------------|
