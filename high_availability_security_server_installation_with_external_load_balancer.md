@@ -499,16 +499,13 @@ root@opmonitor# vim /etc/xroad/conf.d/local.ini
 keep-records-for-days = 30
 host = 0.0.0.0
 ```
+
+Download configuration anchor
+- This configuration anchor specifies the URL for opmonitor to download its global configuration information
 ```bash
 root@opmonitor# curl -o /etc/xroad/configuration-anchor.xml https://repository.camdx.gov.kh/repository/camdx-anchors/anchors/CAMBODIA_configuration_anchor.xml
 ```
-- This configuration anchor specifies the URL for opmonitor to download its global configuration information
-- For HTTPs preference, Modify the URL to https as below: (otherwise, keep it as it is)
-```bash
-<downloadURL>https://cs1-prod.camdx.gov.kh/internalconf</downloadURL>....
-<downloadURL>https://cs2-prod.camdx.gov.kh/internalconf</downloadURL>....
-<downloadURL>https://cs3-prod.camdx.gov.kh/internalconf</downloadURL>....
-```
+
 ```bash
 root@opmonitor# chown xroad:xroad /etc/xroad/configuration-anchor.xml
 root@opmonitor# systemctl restart xroad-opmonitor
