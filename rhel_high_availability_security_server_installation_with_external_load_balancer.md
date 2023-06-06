@@ -46,13 +46,13 @@ High Availability Setup
 
 - [7.	REFERENCES](#7-references)
 
-## 1 Network Diagram
+## 1. Network Diagram
 The network diagram below provides an example of a basic Security Server setup. Allowing incoming connections from the Monitoring Security Server on ports 5500/tcp and 5577/tcp is necessary for the CamDX Operator to be able to monitor the ecosystem and provide statistics and support for Members.
 
 ![FIGURE 1 – NETWORK DIAGRAM](ansible/img/ha_ss_ext_lb.png)
 <p align="center"> FIGURE 1 – NETWORK DIAGRAM </p>
 
-## 2 State Replication from Master Security Server to Slaves
+## 2. State Replication from Master Security Server to Slaves
 
 - State Replication from the master to the slaves
 - Replicated State: 
@@ -72,7 +72,7 @@ The network diagram below provides an example of a basic Security Server setup. 
 
 <p align="center"> FIGURE 2 – MASTER SLAVES STATE REPLICATION </p>
 
-## 3 INSTALLATION
+## 3. INSTALLATION
 ### 3.1 Prerequisites
 Security Server Master and Slave node must already have package *xroad-securityserver* installed!
 
@@ -482,7 +482,7 @@ A successful replication with a slave node could look like this:
 
 
 
-## 4 EXTERNAL LOAD BALANCER
+## 4. EXTERNAL LOAD BALANCER
 ### 4.1 Installation and Configuration
 **4.1.1 Installation**
 
