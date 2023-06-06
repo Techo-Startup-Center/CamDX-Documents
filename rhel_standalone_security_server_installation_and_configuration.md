@@ -243,12 +243,17 @@ sudo yum install xroad-addon-opmonitoring
 sudo systemctl restart xroad-opmonitor
 ```
 
+Allow access for webadmin:
+```bash
+sudo firewall-cmd --zone=public --add-port=4000/tcp --permanent
+sudo firewall-cmd --reload
+```
 
 Ensure that the security server user interface at <https://SECURITYSERVER_IP:4000> can be opened in a Web browser. To log in, use the account name chosed during the installation. The web browser may display a connection refused -error while the user interface is still starting up.
 
 ## 4 CONFIGURATION
 ### 4.1 SECURITY SERVER MEMBER INFORMATION
-- Member Information will be provided by CamDX Central Authority as part of the member regisration process
+- Member Information will be provided by CamDX Central Authority as part of the member registration process
 
 ||Member Information|
 |-|-|
@@ -258,15 +263,14 @@ Ensure that the security server user interface at <https://SECURITYSERVER_IP:400
 
 TABLE 2 – MEMBER INFORMATION IN PRODUCTION ENVIRONMENT
 
-- Member Name in this example are Techo Startup Center and Company1 Co., Ltd.
+- Member Name in this example is Company1 Co., Ltd.
 - Member Code will be provided
 ### 4.2 ACCESS TO SECURITY SERVER ADMIN INTERFACE
 - URL: 	<https://SECURITY_SERVER_IP:4000> 
 - ID: 		camdx-systemadmin or <YOUR_SYSTEMADMINUSER>
 - Password: 	<YOUR_PASSWORD>
 ### 4.3 CONFIGURATION ANCHOR
-- The Anchor Configuration file will be provided by CamDX Central Authority 
-- You can download it from here:
+- The Configuration Anchor file can be downloaded from:
 
 
 |ENVIRONMENT||
@@ -274,6 +278,7 @@ TABLE 2 – MEMBER INFORMATION IN PRODUCTION ENVIRONMENT
 |[DEV](https://repository.camdx.gov.kh/repository/camdx-anchors/anchors/dev/CAMBODIA_configuration_anchor_dev.xml)|https://repository.camdx.gov.kh/repository/camdx-anchors/anchors/dev/CAMBODIA_configuration_anchor_dev.xml|
 |[PRODUCTION](https://repository.camdx.gov.kh/repository/camdx-anchors/anchors/CAMBODIA_configuration_anchor.xml)|https://repository.camdx.gov.kh/repository/camdx-anchors/anchors/CAMBODIA_configuration_anchor.xml|
 
+When uploading, the Security Server will check the connection to Central Security's address specified in Anchor file
 - Upload the Configuration Anchor File
 
 ![img](img/config-import-anchor.png)
