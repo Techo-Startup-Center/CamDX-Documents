@@ -71,7 +71,7 @@ Standalone Security Server Installation and Configuration
 <!-- vim-markdown-toc -->
 <!-- tocstop -->
 
-## 1 SECURITY SERVER REQUIREMENT
+## 1. SECURITY SERVER REQUIREMENT
 ### 1.1 Hardware Requirement
 - The server’s hardware (motherboard, CPU, network interface cards, storage system) must be supported by Ubuntu in general
 - CPU: 2
@@ -137,7 +137,7 @@ The network diagram below provides an example of a basic Security Server setup. 
 |Timestamping Service|103.63.190.229 (443/tcp)|103.216.51.117 (10000/tcp)|
 |OCSP Service|103.63.190.229 (443/tcp)|103.216.51.117 (10000/tcp)|
 
-## 2 INSTALLATION
+## 2. INSTALLATION
 ### 2.1 CamDX Security Server Built Packages
 - Add Repository to /etc/apt/sources.list:
 ```bash
@@ -215,7 +215,7 @@ The Distinguished Name of the owner of the TLS certificate that is used for secu
 <p align="center"> FIGURE 7 – INTERNAL SERVICE TLS CERTIFICATE </p>
 
 
-## 3 POST-INSTALLATION
+## 3. POST-INSTALLATION
 ### 3.1 Services Check
 The installation is successful if system services are started and the user interface is responding.
 - Ensure from the command line that X-Road services are in the running state (example output follows):
@@ -247,7 +247,7 @@ sudo systemctl restart xroad-opmonitor
 
 Ensure that the security server user interface at <https://SECURITYSERVER_IP:4000> can be opened in a Web browser. To log in, use the account name chosed during the installation. The web browser may display a connection refused -error while the user interface is still starting up.
 
-## 4 CONFIGURATION
+## 4. CONFIGURATION
 ### 4.1 SECURITY SERVER MEMBER INFORMATION
 - Member Information will be provided by CamDX Central Authority as part of the member regisration process
 
@@ -483,7 +483,7 @@ The status will turn GREEN **"REGISTERED"** after the it is approved by the auth
 
 Refer to the API specification documents for more information!
 
-## 5 COMMANDS USED
+## 5. COMMANDS USED
 ```bash
 sudo apt update
 sudo apt upgrade
