@@ -164,7 +164,7 @@ psql --version       #psql (PostgreSQL) 10.23
 psql -h <database host> -U <superuser> -tAc 'show server_version'
 #Make sure 'postgresql-contrib' is installed at the remote database
 ```
-- Create the property file for database crendials:
+- Create the property file for database credentials:
 ```bash
 sudo touch /etc/xroad.properties
 sudo chown root:root /etc/xroad.properties
