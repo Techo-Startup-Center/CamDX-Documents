@@ -163,6 +163,17 @@ Verify connection to the remote PostgreSQL: (pay close attention to their versio
 psql --version
 psql -h <database host> -U <superuser> -tAc 'show server_version'
 ```
+- Create the property file for database credentials:
+```bash
+sudo touch /etc/xroad.properties
+sudo chown root:root /etc/xroad.properties
+sudo chmod 600 /etc/xroad.properties
+sudo vi /etc/xroad.properties
+```
+```bash
+postgres.connection.password = <database superuser password>
+postgres.connection.user = <database superuser name, postgres by default>
+```
 ### 2.3 Install the Security Server Package
 ```bash
 sudo apt update
