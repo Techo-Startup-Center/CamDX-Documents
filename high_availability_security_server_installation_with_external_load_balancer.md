@@ -16,7 +16,7 @@ High Availability Setup
 
 <!-- toc -->
 <!-- vim-markdown-toc GFM -->
-- [1. SECURITY SERVER REQUIREMENT](#1-security-server-requirement)
+- [1. Network Diagram](#1-network-diagram)
 
 - [2.	State Replication from Master Security Server to Slaves](#2-state-replication-from-master-security-server-to-slaves)
 
