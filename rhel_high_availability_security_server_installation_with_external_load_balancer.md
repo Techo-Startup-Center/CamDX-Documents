@@ -80,6 +80,13 @@ In order to properly setup data replication, the slave nodes must be able to con
 
 - The master server using SSH (tcp port 22), and
 - The master serverconf database (e.g tcp port 5433)
+- Stop security server services for both node:
+```bash
+root@master# systemctl stop "xroad-*"
+```
+```bash
+root@slave# systemctl stop "xroad-*"
+```
 
 ### 3.2 Database Replication Setup
 **3.2.1 Create a Separate PostgreSQL Instance for serverconf Database on Master Node**
