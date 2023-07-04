@@ -74,6 +74,16 @@ The network diagram below provides an example of a basic Security Server setup. 
 
 ## 3. INSTALLATION
 ### 3.1 Prerequisites
+Install Standalone Security Server for both Master and Slave node following the steps in until 3.1 [standalone_security_server_installation_and_configuration.md](https://github.com/Techo-Startup-Center/CamDX-Documents/blob/main/standalone_security_server_installation_and_configuration.md)
+
+Stop security server services on both node:
+```bash
+root@master# systemctl stop "xroad-*"
+```
+```bash
+root@slave# systemctl stop "xroad-*"
+```
+
 In order to properly setup data replication, the slave nodes must be able to connect to:
 
 - The master server using SSH (tcp port 22), and
