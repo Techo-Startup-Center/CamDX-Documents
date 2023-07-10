@@ -132,7 +132,7 @@ max_wal_senders = 3
 wal_keep_segments = 8 
 ```
 ```bash
-root@master# vim /etc/postgresql/10/serverconf/pg_hba.conf
+root@master# vim /etc/postgresql/14/serverconf/pg_hba.conf
 ```
 ```bash
 hostssl replication +slavenode 10.0.10.20/32 cert
