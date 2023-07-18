@@ -324,7 +324,7 @@ type=master
 ```
 ```bash
 root@master# chown xroad:xroad /etc/xroad/conf.d/node.ini
-root@master# systemctl start "xroad-*"
+root@master# systemctl start "xroad-*" --all
 ```
 *Configure node type **on Slave***
 ```bash
