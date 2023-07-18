@@ -129,7 +129,7 @@ ssl_key_file = '/etc/xroad/postgresql/server.key'
 listen_addresses = '*'
 wal_level = hot_standby
 max_wal_senders = 3 
-wal_keep_segments = 8 
+wal_keep_size = 8 
 ```
 ```bash
 root@master# vim /etc/postgresql/14/serverconf/pg_hba.conf
