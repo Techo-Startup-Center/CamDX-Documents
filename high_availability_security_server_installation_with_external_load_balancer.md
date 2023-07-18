@@ -336,7 +336,7 @@ type=slave
 ```
 ```bash
 root@slave# chown xroad:xroad /etc/xroad/conf.d/node.ini
-root@slave# systemctl start "xroad-*"
+root@slave# systemctl start "xroad-*" --all
 ```
 ### 3.4 Verification
 **3.4.1 Verifying rsync+ssh replication:**
