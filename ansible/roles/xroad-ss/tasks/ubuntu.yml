@@ -42,3 +42,7 @@
     force: yes
   tags:
     - install-xroad-ss-packages
+
+- name: install op-monitoring
+  package: name=xroad-addon-opmonitoring state=latest
+  when: (xroad_install_opmonitoring is defined) and (xroad_install_opmonitoring)

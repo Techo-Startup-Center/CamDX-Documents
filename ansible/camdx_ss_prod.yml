@@ -1,5 +1,5 @@
 ---
-# This playbook installs CamDX production environment to the defined host inventory from a remote package repository
+# This playbook installs HA Security Servers with external operational monitoring and load balancer
 
 # Generate Certificate on ansible controller
 - hosts: localhost

@@ -2,6 +2,9 @@
 - include_tasks: ubuntu.yml
   when: ansible_os_family == "Debian"
 
+- include_tasks: rhel.yml
+  when: ansible_os_family == "RedHat"
+
 # configuration tweaks
 - name: enable health check
   ini_file:

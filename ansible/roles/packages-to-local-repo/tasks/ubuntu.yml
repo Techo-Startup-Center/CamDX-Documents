@@ -1,11 +1,34 @@
 ---
+- name: System details
+  debug:
+    msg: "{{ ansible_distribution_version }}"
+  tags:
+    - debug
 
-- name: Copy bionic DEB packages (Ubuntu)
-  become: yes
-  copy: src="../repo/ubuntu18.04/" dest="/xroad/"
-  when: ubuntu_releasever == "bionic"
+- name: Clean local repo
+  file:
+    path: "/xroad/"
+    state: absent
+  tags:
+    - clean-local-repo
 
-- name: Copy focal DEB packages (Ubuntu)
+- name: Copy {{ ansible_distribution_release }} DEB packages (Ubuntu)
   become: yes
-  copy: src="../repo/ubuntu20.04/" dest="/xroad/"
-  when: ubuntu_releasever == "focal"
+  copy: src="../src/packages/build/ubuntu{{ ansible_distribution_version }}/" dest="/xroad/"
+
+- name: Add empty Packages to local repo for apt to run
+  file:
+    path: "/xroad/Packages"
+    state: touch
+  tags:
+    - clean-local-repo
+
+- name: Ensure dpkg-dev
+  become: yes
+  apt: name=dpkg-dev state=present update_cache=yes
+
+- name: Scan new packages
+  become: yes
+  shell: "dpkg-scanpackages -m . >Packages"
+  args:
+    chdir: /xroad

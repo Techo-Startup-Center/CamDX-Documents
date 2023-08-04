@@ -1,3 +1,9 @@
 ---
 package_source: "local"
 ubuntu_apt_repo: "deb [trusted=yes] file:///home/{{inventory_hostname.split('.')[0]}} /"
+
+rhel_repo_baseurl: "file:///xroad"
+rhel_repo_gpgcheck: "no"
+rhel_repo_gpgkey: ""
+rhel_repo_repogpgcheck: "no"
+rhel_repo_metadataexpire: 60

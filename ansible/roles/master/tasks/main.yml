@@ -34,7 +34,7 @@
       - xroad-proxy
       - xroad-confclient
       - xroad-signer
-      - xroad-jetty
+      - xroad-proxy-ui-api
 
 - name: restart opmonitor on master
   service:

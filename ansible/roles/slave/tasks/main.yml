@@ -2,6 +2,13 @@
 - name: configure slave serverconf db
   import_tasks: serverconf_slave_db.yml
 
+- name: fix permissions
+  file:
+    path: /etc/xroad/autologin
+    owner: xroad
+    state: file
+  ignore_errors: yes
+
 - name: do initial configuration sync
   become_user: xroad
   become: yes
@@ -40,7 +47,7 @@
       - xroad-proxy
       - xroad-confclient
       - xroad-signer
-      - xroad-jetty
+      - xroad-proxy-ui-api
 
 - name: remove UI editor groups
   group:

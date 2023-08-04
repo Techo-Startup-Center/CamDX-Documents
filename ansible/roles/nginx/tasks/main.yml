@@ -1,14 +1,27 @@
 ---
+- name: Update package cache
+  ansible.builtin.yum:
+    update_cache: yes
+  when: ansible_os_family == 'RedHat'
+
 - name: apt update
-  apt:
+  ansible.builtin.apt:
     update_cache: yes
     cache_valid_time: 3600
+  when: ansible_os_family == 'Debian'
 
 - name: Install Nginx
-  apt:
+  ansible.builtin.package:
     name: nginx
     state: latest
+    update_cache: yes
+  when: ansible_os_family == 'RedHat'
 
+- name: Install Nginx
+  ansible.builtin.apt:
+    name: nginx
+    state: latest
+  when: ansible_os_family == 'Debian'
 - name: Insert a line to the bottom of nginx.conf
   lineinfile:
     path: /etc/nginx/nginx.conf

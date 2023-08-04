@@ -14,7 +14,7 @@
       enabled: false
   with_items:
       - xroad-proxy
-      - xroad-jetty
+      - xroad-proxy-ui-api
       - xroad-monitor
 
 - name: local.ini for opmonitor

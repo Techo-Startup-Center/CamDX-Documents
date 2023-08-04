@@ -36,6 +36,9 @@
 - include_tasks: ubuntu.yml
   when: ansible_os_family == "Debian"
 
+- include_tasks: rhel.yml
+  when: ansible_os_family == "RedHat"
+
 - name: clean xroad logs at boot
   cron:
     name: xroad log cleanup
@@ -56,5 +59,17 @@
     user: root
     state: present
   when: ansible_os_family == "Debian"
+  tags:
+    - cron
+
+- name: clean package manager caches at boot (RHEL)
+  cron:
+    name: clean package cache
+    job: "yum clean packages > /dev/null 2>&1"
+    special_time: reboot
+    cron_file: package_cache_cleanup
+    user: root
+    state: present
+  when: ansible_os_family == "RedHat"
   tags:
     - cron

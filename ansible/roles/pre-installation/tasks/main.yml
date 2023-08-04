@@ -1,11 +1,11 @@
 ---
-#- name: Update apt repo and cache
-#   apt:
-#    update_cache=yes
+- name: Update apt repo and cache
+  apt:
+    update_cache: yes
 
-#- name: Upgrade all apt packages
-#   apt:
-#    upgrade=dist
+- name: Upgrade all apt packages
+  apt:
+    upgrade: dist
 
 # It is recommended to restart crond after changing timezone, otherwise the jobs may run at the wrong time.
 - name: set timezone to Asia/Phnom_Penh (restart crond is recommended)

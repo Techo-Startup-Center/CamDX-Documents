@@ -1,0 +1,11 @@
+---
+- name: apt update
+  apt:
+    update_cache: yes
+    cache_valid_time: 3600
+
+- name: Install Nginx
+  apt:
+    name: nginx
+    state: latest
+
