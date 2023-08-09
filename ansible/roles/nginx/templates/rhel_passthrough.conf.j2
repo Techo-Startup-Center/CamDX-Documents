@@ -1,0 +1,68 @@
+stream {
+
+	# Log Format Configuration
+	log_format basic '$remote_addr [$time_local] '
+                 '$protocol $status $bytes_sent $bytes_received '
+                 '$session_time "$upstream_addr" '
+                 '"$upstream_bytes_sent" "$upstream_bytes_received" "$upstream_connect_time"';
+
+	# Log File Configuration
+	access_log /var/log/nginx/{{ inventory_hostname }}_access.log basic;
+	error_log /var/log/nginx/{{ inventory_hostname }}_error.log;
+
+	# Upstream Configuration for port 5500, 5577, 8080, and 8443
+	upstream camdx_5500 {
+	{% for host in groups['master'] %}
+	server {{ host }}:5500 max_fails=1 fail_timeout=10s;
+{% endfor %}
+	{% for host in groups['slaves'] %}
+	server {{ host }}:5500 max_fails=1 fail_timeout=10s;
+	{% endfor %}
+}
+	upstream camdx_5577 {
+	{% for host in groups['master'] %}
+	server {{ host }}:5577 max_fails=1 fail_timeout=10s;
+{% endfor %}
+	{% for host in groups['slaves'] %}
+	server {{ host }}:5577 max_fails=1 fail_timeout=10s;
+	{% endfor %}
+}
+	upstream camdx_8080 {
+	{% for host in groups['master'] %}
+	server {{ host }}:8080 max_fails=1 fail_timeout=1s;
+{% endfor %}
+	{% for host in groups['slaves'] %}
+	server {{ host }}:8080 max_fails=1 fail_timeout=1s;
+	{% endfor %}
+}
+	upstream camdx_8443 {
+	{% for host in groups['master'] %}
+	server {{ host }}:8443 max_fails=1 fail_timeout=1s;
+{% endfor %}
+	{% for host in groups['slaves'] %}
+	server {{ host }}:8443 max_fails=1 fail_timeout=1s;
+	{% endfor %}
+}
+
+	# Server Listener
+	server {
+		listen 5500;
+		proxy_pass camdx_5500;
+		proxy_next_upstream on;
+	}
+	server {
+		listen 5577;
+		proxy_pass camdx_5577;
+		proxy_next_upstream on;
+	}
+	server {
+		listen 8080;
+		proxy_pass camdx_8080;
+		proxy_next_upstream on;
+	}
+	server {
+		listen 8443;
+		proxy_pass camdx_8443;
+		proxy_next_upstream on;
+	}
+}

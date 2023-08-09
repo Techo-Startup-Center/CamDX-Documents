@@ -1,6 +1,11 @@
 ---
-- name: setup master database
+- name: setup master database ubuntu
   import_tasks: serverconf_master_db.yml
+  when: ansible_os_family == "Debian"
+
+- name: setup master database rhel
+  import_tasks: rhel_serverconf_master_db.yml
+  when: ansible_os_family == "RedHat"
 
 - name: enable master role for node
   ini_file: dest=/etc/xroad/conf.d/node.ini
@@ -11,7 +16,7 @@
             mode=0640
             owner=xroad
             group=xroad
-            
+
 - name: enable master role for op-monitor
   ini_file: 
     dest: /etc/xroad/conf.d/local.ini
@@ -25,6 +30,16 @@
       - xroad-addon-opmonitoring
       - xroad-addon-proxymonitor
     state: latest
+  when: ansible_os_family == "Debian"
+
+- name: install opmonitor and proxymonitor addon rhel
+  yum:
+    name:
+      - xroad-addon-opmonitoring
+      - xroad-addon-proxymonitor
+    state: latest
+  when: ansible_os_family == "RedHat"
+
 
 - name: start services
   service:
@@ -46,3 +61,14 @@
       name: xroad-opmonitor
       state: stopped
       enabled: false
+
+- name: Open firewall port 4000/tcp for security server webadmin
+  firewalld:
+      port: "4000/tcp"
+      permanent: yes
+      state: enabled
+  become: true
+
+- include_tasks: ../../../shared/rhel-selinux.yml
+  when: ansible_os_family == 'RedHat'
+

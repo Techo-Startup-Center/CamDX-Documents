@@ -1,6 +1,11 @@
 ---
 - name: configure slave serverconf db
   import_tasks: serverconf_slave_db.yml
+  when: ansible_os_family == "Debian"
+
+- name: configure slave serverconf db rhel
+  import_tasks: rhel_serverconf_slave_db.yml
+  when: ansible_os_family == "RedHat"
 
 - name: fix permissions
   file:
@@ -38,6 +43,16 @@
       - xroad-addon-opmonitoring
       - xroad-addon-proxymonitor
     state: latest
+  when: ansible_os_family == "Debian"
+
+- name: install opmonitor and proxymonitor addon rhel
+  yum:
+    name:
+      - xroad-addon-opmonitoring
+      - xroad-addon-proxymonitor
+    state: latest
+  when: ansible_os_family == "RedHat"
+
 
 - name: start services
   service:
@@ -61,3 +76,14 @@
       name: xroad-opmonitor
       state: stopped
       enabled: false
+
+- name: Open firewall port 4000/tcp for security server webadmin
+  firewalld:
+      port: "4000/tcp"
+      permanent: yes
+      state: enabled
+  become: true
+
+- include_tasks: ../../../shared/rhel-selinux.yml
+  when: ansible_os_family == 'RedHat'
+

@@ -1,11 +1,9 @@
 ---
-- name: Update apt repo and cache
-  apt:
-    update_cache: yes
+- include_tasks: ubuntu.yml
+  when: ansible_os_family == "Debian"
 
-- name: Upgrade all apt packages
-  apt:
-    upgrade: dist
+- include_tasks: rhel.yml
+  when: ansible_os_family == "RedHat"
 
 # It is recommended to restart crond after changing timezone, otherwise the jobs may run at the wrong time.
 - name: set timezone to Asia/Phnom_Penh (restart crond is recommended)

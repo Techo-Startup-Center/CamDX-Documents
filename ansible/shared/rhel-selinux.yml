@@ -1,0 +1,41 @@
+---
+- name: Configure SELinux and Firewall for RHEL
+  become: true
+  block:
+    - name: Set SELinux ports for 5500 and 5577
+      command: semanage port -a -t http_port_t -p tcp {{ item.port }}
+      loop:
+        - { port: 5500 }
+        - { port: 5577 }
+      become: true
+      changed_when: false
+      ignore_errors: yes
+
+    - name: Set SELinux ports for 8080 and 8443
+      command: semanage port -a -t http_cache_port_t -p tcp {{ item.port }}
+      loop:
+        - { port: 8080 }
+        - { port: 8443 }
+      become: true
+      changed_when: false
+      ignore_errors: yes
+
+    - name: Set SELinux boolean
+      command: setsebool -P httpd_can_network_connect 1
+      become: true
+
+    - name: Open firewall ports for 5500 5577 8080 and 8443
+      firewalld:
+        port: "{{ item.port }}/tcp"
+        permanent: yes
+        state: enabled
+      loop:
+        - { port: 5500 }
+        - { port: 5577 }
+        - { port: 8080 }
+        - { port: 8443 }
+      become: true
+
+    - name: Reload firewall configuration
+      command: firewall-cmd --reload
+      become: true

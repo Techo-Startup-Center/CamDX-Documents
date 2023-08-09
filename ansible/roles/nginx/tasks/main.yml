@@ -22,6 +22,7 @@
     name: nginx
     state: latest
   when: ansible_os_family == 'Debian'
+
 - name: Insert a line to the bottom of nginx.conf
   lineinfile:
     path: /etc/nginx/nginx.conf
@@ -33,6 +34,26 @@
     state: absent
   notify: restart nginx
 
+- include_tasks: ../../../shared/rhel-selinux.yml
+  when: ansible_os_family == 'RedHat'
+
+- name: copy nginx passthrough.conf
+  template:
+    src: rhel_passthrough.conf.j2
+    dest: /etc/nginx/passthrough.conf
+    owner: root
+    group: root
+    mode: '0644'
+  notify: restart nginx
+  when: ansible_os_family == 'RedHat'
+
+- name: Start and enable Nginx service rhel
+  systemd:
+    name: nginx
+    state: started
+    enabled: yes
+  when: ansible_os_family == 'RedHat'
+
 - name: copy nginx passthrough.conf
   template:
     src: passthrough.conf.j2
@@ -41,3 +62,5 @@
     group: root
     mode: '0644'
   notify: restart nginx
+  when: ansible_os_family == 'Debian'
+
