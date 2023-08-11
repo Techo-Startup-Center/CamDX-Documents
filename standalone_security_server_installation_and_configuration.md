@@ -133,7 +133,7 @@ The network diagram below provides an example of a basic Security Server setup. 
 | :- | :- | :- |
 |Central Server|103.63.190.230 (4001 & 443/tcp)	<br>103.63.190.232 (4001 & 443/tcp)	|206.189.151.1 (4001 & 443/tcp) <br>103.63.190.238 (4001 & 443/tcp)|
 |Central Monitoring Server|103.63.190.227	(5500 & 5577/tcp)||
-|Management Security Server|103.63.190.231 (5500 & 5577/tcp) <br>103.63.190.233	(5500 & 5577/tcp)|178.128.122.111 (5500 & 5577/tcp)|
+|Management Security Server|103.63.190.231 (5500 & 5577/tcp) <br>103.63.190.233	(5500 & 5577/tcp)|103.118.47.131 (5500 & 5577/tcp)|
 |Timestamping Service|103.63.190.229 (443/tcp)|103.216.51.117 (10000/tcp)|
 |OCSP Service|103.63.190.229 (443/tcp)|103.216.51.117 (10000/tcp)|
 
