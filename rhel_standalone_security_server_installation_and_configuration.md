@@ -249,7 +249,7 @@ sudo firewall-cmd --zone=public --add-port=4000/tcp --permanent
 sudo firewall-cmd --reload
 ```
 
-Ensure that the security server user interface at <https://SECURITYSERVER_IP:4000> can be opened in a Web browser. To log in, use the account name chosed during the installation. The web browser may display a connection refused -error while the user interface is still starting up.
+Ensure that the security server user interface at <https://SECURITYSERVER_IP:4000> can be opened in a Web browser. To log in, use the account name chosed during the installation. The web browser may display a connection refused error while the user interface is still starting up.
 
 ## 4 CONFIGURATION
 ### 4.1 SECURITY SERVER MEMBER INFORMATION
