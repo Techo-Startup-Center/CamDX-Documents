@@ -506,7 +506,7 @@ root@opmonitor# vim /etc/xroad/conf.d/local.ini
 ```
 ```bash
 [op-monitor]
-keep-records-for-days = 30
+keep-records-for-days = 90
 host = 0.0.0.0
 ```
 
