@@ -141,7 +141,7 @@ The network diagram below provides an example of a basic Security Server setup. 
 ### 2.1 CamDX Security Server Built Packages
 - Add Repository to /etc/apt/sources.list:
 ```bash
-sudo yum-config-manager --add-repo https://repository.camdx.gov.kh/repository/camdx-release-rpm/rhel/8/7.3.2
+sudo yum-config-manager --add-repo https://repository.camdx.gov.kh/repository/camdx-release-rpm/rhel/8/7.2.2
 ```
 - Add Signing Key:
 ```bash
