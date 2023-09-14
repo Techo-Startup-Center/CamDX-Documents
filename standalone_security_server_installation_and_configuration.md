@@ -141,7 +141,7 @@ The network diagram below provides an example of a basic Security Server setup. 
 ### 2.1 CamDX Security Server Built Packages
 - Add Repository to /etc/apt/sources.list:
 ```bash
-echo deb [arch=all,amd64] https://repository.camdx.gov.kh/repository/camdx-release jammy main | sudo tee -a /etc/apt/sources.list
+echo deb [arch=all,amd64] https://repository.camdx.gov.kh/repository/camdx-deb-jammy-7.3.2 jammy main | sudo tee -a /etc/apt/sources.list
 ```
 - Add Signing Key:
 ```bash
