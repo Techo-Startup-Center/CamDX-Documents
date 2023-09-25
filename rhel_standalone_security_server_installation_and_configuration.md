@@ -231,7 +231,17 @@ sudo systemctl list-units "xroad-*"
   - xroad-proxy.service      	      loaded 	active 	  running 	X-Road Proxy
   - xroad-signer.service     	      loaded 	active 	  running 	X-Road signer
 ```
-
+### Disable Message Body Logging
+```
+sudo vim /etc/xroad/conf.d/local.ini
+```
+```
+[message-log]
+message-body-logging = false
+```
+```
+sudo systemctl restart "xroad-*"
+```
 (skip this 3.2 if you're installing a standalone security server)
 
 ### 3.2 For High-availability Security Server setup with external load balancer and Opmonitor
