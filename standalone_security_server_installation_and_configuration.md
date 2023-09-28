@@ -248,6 +248,7 @@ sudo systemctl list-units "xroad-*"
 ```
 sudo vim /etc/xroad/conf.d/local.ini
 ```
+Create the [message-log] section (if not present) in the file
 ```
 [message-log]
 message-body-logging = false
