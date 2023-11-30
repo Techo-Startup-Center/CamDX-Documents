@@ -487,7 +487,7 @@ root@opmonitor# apt install locales software-properties-common
 
 root@opmonitor# curl https://repository.camdx.gov.kh/repository/camdx-anchors/api/gpg/key/0x04194DBF-pub.asc | apt-key add -
 
-root@opmonitor# echo deb [arch=all,amd64] https://repository.camdx.gov.kh/repository/camdx-release jammy main | tee -a /etc/apt/sources.list
+root@opmonitor# echo deb [arch=all,amd64] https://repository.camdx.gov.kh/repository/camdx-deb-jammy-7.3.2 jammy main | tee -a /etc/apt/sources.list
 
 root@opmonitor# apt update
 root@opmonitor# apt install xroad-securityserver
