@@ -1,6 +1,6 @@
 # Security Server Installation Guide for RHEL
 
-X-ROAD 7.2.2
+X-ROAD 7.3.2
 
 Standalone Security Server Installation and Configuration
 
@@ -9,7 +9,7 @@ Standalone Security Server Installation and Configuration
 |Release no|Author|Date|Brief summary of changes|
 | :- | :- | :- | :- |
 |v1.0.0|CamDX Operator|July 2022||
-|v2.0.0|CamDX Operator|May 2023|Update support for RHEL 8.7|
+|v2.0.0|CamDX Operator|May 2023|Update support for RHEL 8.x|
 
 ## Table of Contents <!-- omit in toc -->
 
@@ -83,7 +83,7 @@ Standalone Security Server Installation and Configuration
 - DISK: 100GB
 - Network Card: 100 Mbps
 ### 1.2 Software
-- Operating System: RHEL 8.7 x86-64
+- Operating System: RHEL 8.x x86-64
 - Set the operating system locale. Add following line to the /etc/environment file.
 ```bash
 echo LC_ALL=en_US.UTF-8 | sudo tee -a /etc/environment
