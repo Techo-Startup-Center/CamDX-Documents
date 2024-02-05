@@ -1,6 +1,6 @@
 # High Availability Security Server with External Load Balancer and Opmonitor
 
-X-Road 7.2.2
+X-Road 7.3.2
 
 High Availability Setup
 
@@ -10,7 +10,7 @@ High Availability Setup
 |Release no|Author|Date|Brief summary of changes|
 | :- | :- | :- | :- |
 |v1.0.0|CamDX Operator|July 2022||
-|v2.0.0|CamDX Operator|May 2023|Update support for RHEL 8.7|
+|v2.0.0|CamDX Operator|May 2023|Update support for RHEL 8.x|
 
 ## Table of Contents <!-- omit in toc -->
 
