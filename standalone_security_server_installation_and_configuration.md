@@ -1,6 +1,6 @@
 # Security Server Installation Guide for Ubuntu
 
-X-ROAD 7.2.2
+X-ROAD 7.3.2
 
 Standalone Security Server Installation and Configuration
 
