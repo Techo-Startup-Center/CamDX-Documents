@@ -130,7 +130,7 @@ The network diagram below provides an example of a basic Security Server setup. 
 
 |Type|CamDX - Development|
 | :- | :- |
-|Central Server|206.189.151.1 (4001 & 443/tcp) <br>103.63.190.238 (4001 & 443/tcp)|
+|Central Server|103.216.51.117 (4001 & 443/tcp)|
 |Central Monitoring Server|N/A|
 |Management Security Server|103.118.47.131 (5500 & 5577/tcp)|
 |Timestamping Service|103.216.51.117 (10000/tcp)|
