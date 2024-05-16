@@ -139,7 +139,7 @@ The network diagram below provides an example of a basic Security Server setup. 
 |Type|CamDX - Production DC|SS Member --> CamDX|CamDX --> SS Member|
 | :- | :- |:- |:- |
 |Central Server|103.118.45.170 (4001 & 443/tcp)	<br>110.74.196.74 (4001 & 443/tcp)|OUTBOUND||
-|Central Monitoring Server|103.118.45.177	(5500 & 5577/tcp) <br> 110.74.196.69	(5500 & 5577/tcp)||INBOUND|
+|Central Monitoring Server|103.118.45.177	(5500 & 5577/tcp) <br> 110.74.196.69	(5500 & 5577/tcp)<br> 103.63.190.227	(5500 & 5577/tcp)||INBOUND|
 |Management Security Server|110.74.196.75 (5500 & 5577/tcp) <br>110.74.196.68	(5500 & 5577/tcp)|OUTBOUND||
 |Timestamping Service|110.74.196.74 (443/tcp) <br>103.118.45.170 (443/tcp)|OUTBOUND||
 |OCSP Service|110.74.196.74 (443/tcp) <br>103.118.45.170 (443/tcp)|OUTBOUND||
