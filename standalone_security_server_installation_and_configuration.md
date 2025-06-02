@@ -529,6 +529,11 @@ sudo apt update
 sudo apt install xroad-securityserver
 
 sudo systemctl list-units "xroad-*"
+
+# Install the Opmonitoring Service
+sudo apt install xroad-addon-proxymonitor
+sudo apt install xroad-addon-opmonitoring
+sudo systemctl restart xroad-opmonitor
 ```
 ## 6 REFERENCES
 
