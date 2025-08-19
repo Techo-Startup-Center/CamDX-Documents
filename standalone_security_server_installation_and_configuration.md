@@ -10,6 +10,7 @@ Standalone Security Server Installation and Configuration
 | :- | :- | :- | :- |
 |v1.0.0|CamDX Operator|July 2022||
 |v2.0.0|CamDX Operator|May 2023|Update support for Ubuntu 22.04 LTS|
+|v2.1.0|CamDX Operator|August 2025|Update support for Ubuntu 24.04 LTS and adding the required for installing the Operational Opminitoring on standalone node and removing the deprecated public ips|
 
 ## Table of Contents <!-- omit in toc -->
 
@@ -39,7 +40,7 @@ Standalone Security Server Installation and Configuration
 
   - [3.1	Services Check](#31-services-check)
   
-  - [3.2 For High-availability Security Server setup with external load balancer and Opmonitor](#32-for-high-availability-security-server-setup-with-external-load-balancer-and-opmonitor)
+  - [3.2 Install Opmonitor for allowing the CamDX Central Operational Monitoring Service to be able to collect the Transaction Logs](#32-install-opmonitor-for-allowing-the-camdx-central-operational-monitoring-service-to-be-able-to-collect-the-transaction-logs)
 
 - [4.	CONFIGURATION](#4-configuration)
 
@@ -79,7 +80,7 @@ Standalone Security Server Installation and Configuration
 - DISK: 100GB
 - Network Card: 100 Mbps
 ### 1.2 Software
-- Operating System: Ubuntu 22.04 LTS x86-64
+- Operating System: Ubuntu 24.04 LTS x86-64
   - Add System Administrator user (do not use user name "xroad", it is reserved fo the X-Road system user)
 ```bash
 sudo adduser camdx-systemadmin
@@ -128,6 +129,7 @@ The network diagram below provides an example of a basic Security Server setup. 
 
 ### 1.5 CamDX Central Authority IPs 
 
+### CamDX Dev Environment:
 |Type|CamDX - Development|SS Member --> CamDX|CamDX --> SS Member|
 | :- | :- |:- |:- |
 |Central Server|103.216.51.117 (4001 & 443/tcp)|OUTBOUND||
@@ -136,10 +138,11 @@ The network diagram below provides an example of a basic Security Server setup. 
 |Timestamping Service|103.216.51.117 (10000/tcp)|OUTBOUND||
 |OCSP Service|103.216.51.117 (10000/tcp)|OUTBOUND||
 
+### CamDX Production Environment:
 |Type|CamDX - Production DC|SS Member --> CamDX|CamDX --> SS Member|
 | :- | :- |:- |:- |
 |Central Server|103.118.45.170 (4001 & 443/tcp)	<br>110.74.196.74 (4001 & 443/tcp)|OUTBOUND||
-|Central Monitoring Server|103.118.45.177	(5500 & 5577/tcp) <br> 110.74.196.69	(5500 & 5577/tcp)<br> 103.63.190.227	(5500 & 5577/tcp)||INBOUND|
+|Central Monitoring Server|103.118.45.177	(5500 & 5577/tcp) <br> 110.74.196.69	(5500 & 5577/tcp)||INBOUND|
 |Management Security Server|110.74.196.75 (5500 & 5577/tcp) <br>110.74.196.68	(5500 & 5577/tcp)|OUTBOUND||
 |Timestamping Service|110.74.196.74 (443/tcp) <br>103.118.45.170 (443/tcp)|OUTBOUND||
 |OCSP Service|110.74.196.74 (443/tcp) <br>103.118.45.170 (443/tcp)|OUTBOUND||
@@ -264,17 +267,51 @@ message-body-logging = false
 sudo systemctl restart "xroad-*"
 ```
 
-(skip this 3.2 if you're installing a standalone security server)
+### Disable Strict Identifier Name:
+```
+sudo vim /etc/xroad/conf.d/local.ini
+```
 
-### 3.2 For High-availability Security Server setup with external load balancer and Opmonitor
+```
+[proxy-ui-api]
+strict-identifier-checks = false
+```
 
-Install xroad-addon-proxymonitor & xroad-addon-opmonitoring on both Master and Slave Security Server node then proceed to [high_availability_security_server_installation_with_external_load_balancer.md](https://github.com/Techo-Startup-Center/CamDX-Documents/blob/main/high_availability_security_server_installation_with_external_load_balancer.md)
+### Update Client Proxy HTTP and HTTPs Port:
+```
+sudo vim /etc/xroad/conf.d/local.ini
+```
+
+```
+[proxy]
+client-http-port=80
+client-https-port=43
+health-check-port=5588
+```
+
+### 3.2 Install Opmonitor for allowing the CamDX Central Operational Monitoring Service to be able to collect the Transaction Logs
+
+Install xroad-addon-proxymonitor & xroad-addon-opmonitoring by the following commands:
 ```bash
 sudo apt install xroad-addon-proxymonitor
 sudo apt install xroad-addon-opmonitoring
 sudo systemctl restart xroad-opmonitor
 ```
 
+### Update the op-monitor property to keep the log records for 365 days and max payload 30000 records:
+```
+sudo vim /etc/xroad/conf.d/local.ini
+```
+
+```
+[op-monitor]
+max-records-in-playload = 30000
+keep-records-for-days = 365
+```
+### And then restart the "xroad-*"
+```bash
+sudo systemctl restart xroad-opmonitor
+```
 
 Ensure that the security server user interface at <https://SECURITYSERVER_IP:4000> can be opened in a Web browser. To log in, use the account name chosed during the installation. The web browser may display a connection refused error while the user interface is still starting up.
 
