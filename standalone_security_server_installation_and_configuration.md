@@ -285,7 +285,7 @@ sudo vim /etc/xroad/conf.d/local.ini
 ```
 [proxy]
 client-http-port=80
-client-https-port=43
+client-https-port=443
 health-check-port=5588
 ```
 
