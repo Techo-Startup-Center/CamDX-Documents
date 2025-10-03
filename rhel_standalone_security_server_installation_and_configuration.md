@@ -128,21 +128,23 @@ The network diagram below provides an example of a basic Security Server setup. 
 
 ### 1.5 CamDX Central Authority IPs 
 
-|Type|CamDX - Development|
-| :- | :- |
-|Central Server|103.216.51.117 (4001 & 443/tcp)|
-|Central Monitoring Server|N/A|
-|Management Security Server|103.118.47.131 (5500 & 5577/tcp)|
-|Timestamping Service|103.216.51.117 (10000/tcp)|
-|OCSP Service|103.216.51.117 (10000/tcp)|
+### CamDX Dev Environment:
+|Type|CamDX - Development|SS Member --> CamDX|CamDX --> SS Member|
+| :- | :- |:- |:- |
+|Central Server|103.216.51.117 (4001 & 443/tcp)|OUTBOUND||
+|Central Monitoring Server|N/A|N/A|N/A|
+|Management Security Server|103.118.47.131 (5500 & 5577/tcp)|OUTBOUND||
+|Timestamping Service|103.216.51.117 (10000/tcp)|OUTBOUND||
+|OCSP Service|103.216.51.117 (10000/tcp)|OUTBOUND||
 
-|Type|CamDX - Production DR|CamDX - Production DC|
-| :- | :- | :- |
-|Central Server|103.63.190.230 (4001 & 443/tcp)	<br>103.63.190.232 (4001 & 443/tcp)|103.118.45.170 (4001 & 443/tcp)	<br>110.74.196.74 (4001 & 443/tcp)|
-|Central Monitoring Server|103.63.190.227	(5500 & 5577/tcp)|103.118.45.177	(5500 & 5577/tcp) <br> 110.74.196.69	(5500 & 5577/tcp)|
-|Management Security Server|103.63.190.231 (5500 & 5577/tcp) <br>103.63.190.233	(5500 & 5577/tcp)|110.74.196.75 (5500 & 5577/tcp) <br>110.74.196.68	(5500 & 5577/tcp)|
-|Timestamping Service|103.63.190.229 (443/tcp)|110.74.196.74 (443/tcp) <br>103.118.45.170 (443/tcp)|
-|OCSP Service|103.63.190.229 (443/tcp)|110.74.196.74 (443/tcp) <br>103.118.45.170 (443/tcp)|
+### CamDX Production Environment:
+|Type|CamDX - Production DC|SS Member --> CamDX|CamDX --> SS Member|
+| :- | :- |:- |:- |
+|Central Server|103.118.45.170 (4001 & 443/tcp)	<br>110.74.196.74 (4001 & 443/tcp)|OUTBOUND||
+|Central Monitoring Server|103.118.45.177	(5500 & 5577/tcp) <br> 110.74.196.69	(5500 & 5577/tcp)||INBOUND|
+|Management Security Server|110.74.196.75 (5500 & 5577/tcp) <br>110.74.196.68	(5500 & 5577/tcp)|OUTBOUND||
+|Timestamping Service|110.74.196.74 (443/tcp) <br>103.118.45.170 (443/tcp)|OUTBOUND||
+|OCSP Service|110.74.196.74 (443/tcp) <br>103.118.45.170 (443/tcp)|OUTBOUND||
 
 ## 2 INSTALLATION
 ### 2.1 CamDX Security Server Built Packages
