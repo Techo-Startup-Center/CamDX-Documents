@@ -10,7 +10,7 @@ High Availability Setup
 |Release no|Author|Date|Brief summary of changes|
 | :- | :- | :- | :- |
 |v1.0.0|CamDX Operator|July 2022||
-|v2.0.0|CamDX Operator|May 2023|Update support for Ubuntu 22.04 LTS|
+|v2.0.0|CamDX Operator|May 2023|Update support for Ubuntu 24.04 LTS|
 
 ## Table of Contents <!-- omit in toc -->
 
