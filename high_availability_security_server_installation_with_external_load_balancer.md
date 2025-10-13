@@ -1,6 +1,6 @@
 # High Availability Security Server with External Load Balancer and Opmonitor
 
-X-Road 7.3.2
+X-Road 7.4.2
 
 High Availability Setup
 
