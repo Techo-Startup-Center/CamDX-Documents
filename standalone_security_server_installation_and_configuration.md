@@ -538,7 +538,7 @@ The status will turn GREEN **"REGISTERED"** after the it is approved by the auth
 
 <p align="center"> FIGURE 47 – ACCESSING OPEN_API </p>
 
-- POST http://ss-dev.company1.com.kh/r1/CAMBODIA/GOV/CAMDX-20201222/CAMDIGIKEY_KYC/servicecode
+- POST http://ss-dev.company1.com.kh:8080/r1/CAMBODIA/GOV/CAMDX-20201222/CAMDIGIKEY_KYC/servicecode
 - Header: X-Road-Client: CAMBODIA/COM/CAMDEV21231832/CP1_API
 
 ![img](img/config-access2.png)
