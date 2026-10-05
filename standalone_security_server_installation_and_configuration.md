@@ -11,6 +11,7 @@ Standalone Security Server Installation and Configuration
 |v1.0.0|CamDX Operator|July 2022||
 |v2.0.0|CamDX Operator|May 2023|Update support for Ubuntu 22.04 LTS|
 |v2.1.0|CamDX Operator|August 2025|Update support for Ubuntu 24.04 LTS and adding the required for installing the Operational Opminitoring on standalone node and removing the deprecated public ips|
+|v2.2.0|CamDX Operator|August 2026|Add new CamDX public IPs for Development and Production environments (Central Server, Management Security Server, Timestamping, OCSP, and Central Monitoring Server)|
 
 ## Table of Contents <!-- omit in toc -->
 
@@ -132,20 +133,20 @@ The network diagram below provides an example of a basic Security Server setup. 
 ### CamDX Dev Environment:
 |Type|CamDX - Development|SS Member --> CamDX|CamDX --> SS Member|
 | :- | :- |:- |:- |
-|Central Server|103.216.51.117 (4001 & 443/tcp)|OUTBOUND||
+|Central Server|103.216.51.117 (4001 & 443/tcp) <br>160.30.9.210 (4001 & 443/tcp)|OUTBOUND||
 |Central Monitoring Server|N/A|N/A|N/A|
-|Management Security Server|103.118.47.131 (5500 & 5577/tcp)|OUTBOUND||
-|Timestamping Service|103.216.51.117 (10000/tcp)|OUTBOUND||
-|OCSP Service|103.216.51.117 (10000/tcp)|OUTBOUND||
+|Management Security Server|103.118.47.131 (5500 & 5577/tcp) <br>160.30.9.210 (5500 & 5577/tcp)|OUTBOUND||
+|Timestamping Service|103.216.51.117 (10000/tcp) <br>160.30.9.210 (10000/tcp)|OUTBOUND||
+|OCSP Service|103.216.51.117 (10000/tcp) <br>160.30.9.210 (10000/tcp)|OUTBOUND||
 
 ### CamDX Production Environment:
 |Type|CamDX - Production DC|SS Member --> CamDX|CamDX --> SS Member|
 | :- | :- |:- |:- |
-|Central Server|103.118.45.170 (4001 & 443/tcp)	<br>110.74.196.74 (4001 & 443/tcp)|OUTBOUND||
-|Central Monitoring Server|103.118.45.177	(5500 & 5577/tcp) <br> 110.74.196.69	(5500 & 5577/tcp)||INBOUND|
-|Management Security Server|110.74.196.75 (5500 & 5577/tcp) <br>110.74.196.68	(5500 & 5577/tcp)|OUTBOUND||
-|Timestamping Service|110.74.196.74 (443/tcp) <br>103.118.45.170 (443/tcp)|OUTBOUND||
-|OCSP Service|110.74.196.74 (443/tcp) <br>103.118.45.170 (443/tcp)|OUTBOUND||
+|Central Server|103.118.45.170 (4001 & 443/tcp) <br>110.74.196.74 (4001 & 443/tcp) <br>160.30.9.73 (4001 & 443/tcp)|OUTBOUND||
+|Central Monitoring Server|103.118.45.177 (5500 & 5577/tcp) <br>110.74.196.69 (5500 & 5577/tcp) <br>160.30.9.2 (5500 & 5577/tcp) <br>160.250.86.2 (5500 & 5577/tcp)||INBOUND|
+|Management Security Server|110.74.196.75 (5500 & 5577/tcp) <br>110.74.196.68 (5500 & 5577/tcp) <br>160.30.9.77 (5500 & 5577/tcp)|OUTBOUND||
+|Timestamping Service|110.74.196.74 (443/tcp) <br>103.118.45.170 (443/tcp) <br>160.30.9.73 (443/tcp)|OUTBOUND||
+|OCSP Service|110.74.196.74 (443/tcp) <br>103.118.45.170 (443/tcp) <br>160.30.9.73 (443/tcp)|OUTBOUND||
 
 ## 2. INSTALLATION
 ### 2.1 CamDX Security Server Built Packages
