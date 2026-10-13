@@ -1,0 +1,531 @@
+#!/usr/bin/env bash
+#
+# camdx-ss-check — read-only CamDX Security Server installation-readiness
+# checker (v1: installation readiness only).
+#
+# This script makes NO changes to the host. It does not install
+# packages, restart services, initialize a token, register anything, or
+# touch certificates. It never prints secrets (PIN, password, private
+# key, token secret, database password, or full secret-bearing config
+# files) — its output is safe to paste to CamDX support.
+#
+# v1 deliberately does NOT check: imported configuration anchor, member
+# identity, Security Server Code, initialized token, SIGN/AUTH keys,
+# certificates, AUTH certificate registration, subsystem registration,
+# global configuration health after registration, provider API success,
+# or CamDX Meter ingestion. A freshly, correctly installed Security
+# Server should report READY FOR INITIAL CONFIGURATION without any of
+# that existing yet.
+#
+# Usage:
+#   sudo ./camdx-ss-check [--verbose]
+#   sudo ./camdx-ss-check --help
+#
+set -euo pipefail
+
+VERBOSE=0
+
+EXPECTED_VERSION=""
+PLATFORM_CODENAME=""
+
+PASS_COUNT=0
+WARN_COUNT=0
+FAIL_COUNT=0
+SKIP_COUNT=0
+
+usage() {
+  cat <<'EOF'
+camdx-ss-check — CamDX Security Server installation-readiness checker (v1)
+
+Usage:
+  sudo ./camdx-ss-check [--verbose]
+  sudo ./camdx-ss-check --help
+
+v1 checks installation readiness only (OS, package version, services,
+listeners, basic database/OPMON presence) — it does not check member
+identity, token, certificate, or registration state. This script makes
+no changes and never prints secrets. Output is safe to paste to CamDX
+support.
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --verbose) VERBOSE=1; shift ;;
+    --help|-h) usage; exit 0 ;;
+    *) echo "Unknown option: $1" >&2; usage; exit 2 ;;
+  esac
+done
+
+# ---------------------------------------------------------------------------
+# Result helpers
+# ---------------------------------------------------------------------------
+result() {
+  local status="$1"; shift
+  local msg="$*"
+  case "$status" in
+    PASS) PASS_COUNT=$((PASS_COUNT+1)) ;;
+    WARN) WARN_COUNT=$((WARN_COUNT+1)) ;;
+    FAIL) FAIL_COUNT=$((FAIL_COUNT+1)) ;;
+    SKIP) SKIP_COUNT=$((SKIP_COUNT+1)) ;;
+  esac
+  printf '%-4s %s\n' "$status" "$msg"
+}
+
+vlog() {
+  if [ "$VERBOSE" -eq 1 ]; then
+    printf '      %s\n' "$*"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# 1. OS
+# ---------------------------------------------------------------------------
+check_os() {
+  if [ ! -r /etc/os-release ]; then
+    result FAIL "OS: /etc/os-release not readable — cannot determine platform."
+    return
+  fi
+  # shellcheck disable=SC1091
+  . /etc/os-release
+
+  if [ "${ID:-}" != "ubuntu" ]; then
+    result FAIL "OS: unsupported (ID=${ID:-unknown}); this checker supports Ubuntu 22.04/24.04 only."
+    return
+  fi
+
+  case "${VERSION_CODENAME:-}" in
+    jammy) PLATFORM_CODENAME="jammy"; EXPECTED_VERSION="7.8.2-1.ubuntu22.04" ;;
+    noble) PLATFORM_CODENAME="noble"; EXPECTED_VERSION="7.8.2-1.ubuntu24.04" ;;
+    *)
+      result FAIL "OS: unsupported Ubuntu release (VERSION_CODENAME=${VERSION_CODENAME:-unknown})."
+      return
+      ;;
+  esac
+  result PASS "OS: Ubuntu $PLATFORM_CODENAME"
+}
+
+# ---------------------------------------------------------------------------
+# 2. Architecture
+# ---------------------------------------------------------------------------
+check_arch() {
+  local arch
+  arch="$(dpkg --print-architecture 2>/dev/null || echo "unknown")"
+  if [ "$arch" = "amd64" ]; then
+    result PASS "Architecture: amd64"
+  else
+    result FAIL "Architecture: $arch (only amd64 is supported)"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# 3. Time synchronization
+# ---------------------------------------------------------------------------
+check_time_sync() {
+  if ! command -v timedatectl >/dev/null 2>&1; then
+    result WARN "Time sync: timedatectl not available — cannot determine state."
+    return
+  fi
+  local synced
+  synced="$(timedatectl show -p NTPSynchronized --value 2>/dev/null || true)"
+  case "$synced" in
+    yes) result PASS "Time sync: synchronized" ;;
+    no) result FAIL "Time sync: NOT synchronized — fix before certificate/registration operations." ;;
+    *) result WARN "Time sync: could not be determined" ;;
+  esac
+}
+
+# ---------------------------------------------------------------------------
+# 4. CamDX repository configuration
+#
+# active_source_lines(): a classic .list comment-line filter (leading
+# '#' ignored). classify_repo_uri_match(): identifies the repository
+# URI SEMANTICALLY — the actual URI token of an active deb/deb-src
+# entry for classic .list files, or the value of the "URIs:" field
+# (including folded continuation lines) for deb822 .sources files —
+# rather than treating the expected URI string as a match wherever it
+# happens to appear on the line/in the stanza (an inline "# comment",
+# an "X-Note:"/"Signed-By:"/other field, etc. must never count). Within
+# that correctly-scoped URI value, matching is still EXACT (not a
+# substring): a token must equal the expected URI exactly, or equal it
+# with exactly one trailing "/" stripped first, so a same-prefix
+# neighbor (".../camdx-deb-noble-7.8.2-old" or "...-test") still never
+# matches. This is deliberately stricter than install-ubuntu.sh's own
+# repository classifier, which intentionally stays a broad "any
+# camdx-deb-* prefix, anywhere on the line" substring match for
+# conflict detection (see that script — unchanged here) — this checker
+# instead needs to confirm the ONE specific expected repository is
+# actually configured as the repository URI, not merely mentioned
+# somewhere in the file.
+#
+# deb822 Enabled: handling is unchanged: a matching stanza with
+# "Enabled: no" is DISABLED (never reported as configured); a matching
+# stanza whose enablement cannot be confidently determined by this
+# simple parser is AMBIGUOUS (WARN, not PASS); "Enabled: yes" or no
+# "Enabled:" field at all (deb822 default is enabled) is ACTIVE.
+# ---------------------------------------------------------------------------
+active_source_lines() {
+  local f="$1"
+  grep -v '^[[:space:]]*#' "$f" 2>/dev/null | grep -v '^[[:space:]]*$' || true
+}
+
+classify_repo_uri_match() {
+  local f="$1" expected_uri="$2"
+  case "$f" in
+    *.sources)
+      awk -v exp_uri="$expected_uri" '
+        function check_uri_tokens(s) {
+          n = split(s, parts, /[ \t]+/)
+          for (j = 1; j <= n; j++) {
+            tok = parts[j]
+            if (tok == "") { continue }
+            sub(/\/$/, "", tok)
+            if (tok == exp_uri) { uri_match = 1 }
+          }
+        }
+        function flush() {
+          if (uri_match) {
+            if (status == "no") { s2 = "DISABLED" }
+            else if (status == "yes" || status == "") { s2 = "ACTIVE" }
+            else { s2 = "AMBIGUOUS" }
+            if (s2 == "ACTIVE") { best = "ACTIVE" }
+            else if (s2 == "AMBIGUOUS" && best != "ACTIVE") { best = "AMBIGUOUS" }
+            else if (s2 == "DISABLED" && best == "NONE") { best = "DISABLED" }
+          }
+          uri_match = 0
+          status = ""
+          in_uris = 0
+        }
+        BEGIN { best = "NONE"; in_uris = 0 }
+        /^[[:space:]]*#/ { next }
+        /^[[:space:]]*$/ { flush(); next }
+        {
+          line = $0
+          # Only the "URIs:" field itself, and its deb822 folded
+          # continuation lines, contribute to repository-identity
+          # matching. Any other field (Suites:, Components:,
+          # Signed-By:, X-Note:, Description:, ...) is never inspected
+          # for the expected URI. Per deb822/RFC822 folding rules, a
+          # continuation line is identified purely by its leading
+          # whitespace -- a new field never starts indented, so no
+          # extra does-this-look-like-a-Field guess is needed (an
+          # earlier version mistakenly also excluded a continuation
+          # line containing https:, since that URI scheme colon was
+          # misread as a field-name colon).
+          if (line ~ /^[[:space:]]*URIs:[[:space:]]*/) {
+            val = line
+            sub(/^[[:space:]]*URIs:[[:space:]]*/, "", val)
+            check_uri_tokens(val)
+            in_uris = 1
+          } else if (in_uris && line ~ /^[[:space:]]+/) {
+            val = line
+            gsub(/^[[:space:]]+/, "", val)
+            check_uri_tokens(val)
+          } else {
+            in_uris = 0
+          }
+          if (line ~ /^[[:space:]]*Enabled:[[:space:]]*/) {
+            val2 = line
+            sub(/^[[:space:]]*Enabled:[[:space:]]*/, "", val2)
+            gsub(/[[:space:]]+$/, "", val2)
+            status = tolower(val2)
+          }
+        }
+        END { flush(); print best }
+      ' "$f" 2>/dev/null
+      ;;
+    *)
+      active_source_lines "$f" | awk -v exp_uri="$expected_uri" '
+        {
+          line = $0
+          sub(/#.*/, "", line)
+          gsub(/^[ \t]+/, "", line)
+          gsub(/[ \t]+$/, "", line)
+          if (line == "") { next }
+          n = split(line, f, /[ \t]+/)
+          if (n < 2) { next }
+          if (f[1] != "deb" && f[1] != "deb-src") { next }
+          idx = 2
+          if (idx <= n && substr(f[idx], 1, 1) == "[") {
+            while (idx <= n && substr(f[idx], length(f[idx]), 1) != "]") { idx++ }
+            idx++
+          }
+          if (idx > n) { next }
+          uri = f[idx]
+          sub(/\/$/, "", uri)
+          if (uri == exp_uri) { found = 1 }
+        }
+        END { print (found ? "ACTIVE" : "NONE") }
+      '
+      ;;
+  esac
+}
+
+check_repository() {
+  if [ -z "$PLATFORM_CODENAME" ]; then
+    result SKIP "CamDX repository: platform not determined, skipping."
+    return
+  fi
+  local expected_repo="camdx-deb-$PLATFORM_CODENAME-7.8.2"
+  local expected_uri="https://repository.camdx.gov.kh/repository/$expected_repo"
+  local active_in="" ambiguous_in="" f state
+  for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do
+    [ -f "$f" ] || continue
+    state="$(classify_repo_uri_match "$f" "$expected_uri")"
+    case "$state" in
+      ACTIVE) active_in="$f"; break ;;
+      AMBIGUOUS) [ -z "$ambiguous_in" ] && ambiguous_in="$f" ;;
+    esac
+  done
+
+  if [ -n "$active_in" ]; then
+    result PASS "CamDX repository: $expected_repo configured ($active_in)"
+  elif [ -n "$ambiguous_in" ]; then
+    result WARN "CamDX repository: a matching entry was found in $ambiguous_in, but its enablement (Enabled: yes/no) could not be safely determined by this v1 parser. Confirm manually that it is actually enabled."
+  else
+    result FAIL "CamDX repository: $expected_repo not found in any active, enabled apt source."
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# 5. Installed xroad-securityserver version
+# ---------------------------------------------------------------------------
+check_package_version() {
+  local installed
+  installed="$(dpkg-query -W -f='${Status} ${Version}' xroad-securityserver 2>/dev/null || true)"
+
+  if [[ "$installed" != *"install ok installed"* ]]; then
+    result FAIL "xroad-securityserver: not installed."
+    return
+  fi
+
+  local version
+  version="${installed##*installed }"
+  if [ -n "$EXPECTED_VERSION" ] && [ "$version" != "$EXPECTED_VERSION" ]; then
+    result FAIL "xroad-securityserver: installed version '$version' does not match expected '$EXPECTED_VERSION'."
+  else
+    result PASS "xroad-securityserver: $version"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# 6. Mixed X-Road package versions
+# ---------------------------------------------------------------------------
+check_mixed_versions() {
+  if [ -z "$EXPECTED_VERSION" ]; then
+    result SKIP "Mixed-version check: expected version not determined, skipping."
+    return
+  fi
+
+  local mismatched
+  mismatched="$(dpkg-query -W -f='${Package}\t${Status}\t${Version}\n' 'xroad*' 2>/dev/null \
+    | awk -F'\t' -v expver="$EXPECTED_VERSION" '$2 ~ /install ok installed/ && $3 != expver {print $1"="$3}' || true)"
+
+  if [ -n "$mismatched" ]; then
+    result FAIL "Mixed xroad* package versions detected (expected $EXPECTED_VERSION): $mismatched"
+  else
+    result PASS "All installed xroad* packages match $EXPECTED_VERSION"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# 7. PostgreSQL / database readiness
+#
+# Determines the installed X-Road database package model FIRST
+# (xroad-database-local vs. xroad-database-remote) before deciding
+# whether a local pg_isready check is even applicable. A remote
+# topology, or neither/both packages present, is reported precisely
+# rather than defaulting to a local-PostgreSQL assumption.
+# ---------------------------------------------------------------------------
+pkg_installed() {
+  dpkg-query -W -f='${Status}' "$1" 2>/dev/null | grep -q "install ok installed"
+}
+
+check_database() {
+  local has_local=0 has_remote=0
+  pkg_installed xroad-database-local && has_local=1
+  pkg_installed xroad-database-remote && has_remote=1
+
+  if [ "$has_local" -eq 1 ] && [ "$has_remote" -eq 1 ]; then
+    result WARN "Database: both xroad-database-local and xroad-database-remote are installed — ambiguous/inconsistent package state. This checker will not guess which topology is authoritative."
+    return
+  fi
+
+  if [ "$has_local" -eq 0 ] && [ "$has_remote" -eq 0 ]; then
+    if pkg_installed xroad-securityserver; then
+      result WARN "Database: neither xroad-database-local nor xroad-database-remote is installed, but xroad-securityserver is. This is an inconsistent package state based on current evidence — it should not normally occur."
+    else
+      result SKIP "Database: neither xroad-database-local nor xroad-database-remote is installed, and xroad-securityserver is not installed either."
+    fi
+    return
+  fi
+
+  if [ "$has_remote" -eq 1 ]; then
+    result WARN "Database: remote database topology detected (xroad-database-remote installed) — camdx-ss-check v1 does not validate remote database connectivity."
+    return
+  fi
+
+  # has_local == 1 from here on: perform the local PostgreSQL readiness check.
+  if ! command -v pg_isready >/dev/null 2>&1; then
+    result WARN "Database: xroad-database-local is installed but pg_isready is not available — cannot verify local PostgreSQL readiness directly."
+    return
+  fi
+
+  if pg_isready -q 2>/dev/null; then
+    result PASS "Database: local PostgreSQL instance is accepting connections"
+  else
+    result FAIL "Database: local PostgreSQL instance is not accepting connections (pg_isready failed)"
+  fi
+  vlog "This checker does not assert a specific PostgreSQL major version — none is established as authoritative for this platform."
+}
+
+# ---------------------------------------------------------------------------
+# 8. X-Road native services
+# ---------------------------------------------------------------------------
+check_service() {
+  local unit="$1"
+  local oneshot="${2:-0}"
+
+  if ! systemctl list-unit-files "${unit}.service" 2>/dev/null | grep -q "${unit}.service"; then
+    result SKIP "$unit: unit not present (not installed)"
+    return
+  fi
+
+  local active sub result_field
+  active="$(systemctl show -p ActiveState --value "$unit" 2>/dev/null || echo unknown)"
+  sub="$(systemctl show -p SubState --value "$unit" 2>/dev/null || echo unknown)"
+  result_field="$(systemctl show -p Result --value "$unit" 2>/dev/null || echo unknown)"
+
+  if [ "$oneshot" -eq 1 ]; then
+    # xroad-base.service is Type=oneshot, RemainAfterExit=yes (confirmed
+    # by direct inspection of the shipped unit file). Its healthy state
+    # is ActiveState=active, SubState=exited, Result=success — NOT
+    # ActiveState=inactive. A oneshot unit with RemainAfterExit=yes stays
+    # "active" after running; "inactive" would mean it was explicitly
+    # stopped or never ran successfully with this flag honored.
+    if [ "$active" = "active" ] && [ "$sub" = "exited" ] && [ "$result_field" = "success" ]; then
+      result PASS "$unit: ran successfully (one-shot, active/exited, RemainAfterExit)"
+    elif [ "$active" = "failed" ] || { [ "$result_field" != "success" ] && [ "$result_field" != "unknown" ]; }; then
+      result FAIL "$unit: one-shot unit failed (ActiveState=$active, Result=$result_field)"
+    else
+      result WARN "$unit: unexpected one-shot state (ActiveState=$active, SubState=$sub, Result=$result_field)"
+    fi
+    return
+  fi
+
+  if [ "$active" = "active" ] && [ "$sub" = "running" ]; then
+    result PASS "$unit: active (running)"
+  elif [ "$active" = "failed" ]; then
+    result FAIL "$unit: failed"
+  else
+    result WARN "$unit: ActiveState=$active SubState=$sub"
+  fi
+}
+
+check_services() {
+  check_service xroad-base 1
+  check_service xroad-confclient 0
+  check_service xroad-monitor 0
+  check_service xroad-proxy 0
+  check_service xroad-proxy-ui-api 0
+  check_service xroad-signer 0
+  check_service xroad-addon-messagelog 0
+
+  # xroad-opmonitor is only expected when local OPMON is installed —
+  # absence on its own is not a failure (remote/external OPMON may be in
+  # use, or this check cannot determine topology safely).
+  if dpkg-query -W -f='${Status}' xroad-addon-opmonitoring 2>/dev/null | grep -q "install ok installed"; then
+    check_service xroad-opmonitor 0
+  else
+    result SKIP "xroad-opmonitor: xroad-addon-opmonitoring not installed — skipping (local OPMON not selected on this host, or remote/external topology in use)"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# 9. Failed units
+# ---------------------------------------------------------------------------
+check_failed_units() {
+  local failed
+  failed="$(systemctl list-units --state=failed --no-legend --plain 2>/dev/null | awk '{print $1}' | grep '^xroad' || true)"
+  if [ -n "$failed" ]; then
+    result FAIL "Failed X-Road units detected: $(echo "$failed" | tr '\n' ' ')"
+  else
+    result PASS "No failed X-Road units"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# 10. Admin UI listener
+# ---------------------------------------------------------------------------
+check_admin_ui_listener() {
+  if command -v ss >/dev/null 2>&1; then
+    if ss -ltn 2>/dev/null | awk '{print $4}' | grep -qE '(^|:)4000$'; then
+      result PASS "Admin UI: listening on TCP 4000 (local check only — this does not confirm remote reachability)"
+    else
+      result FAIL "Admin UI: nothing listening on TCP 4000"
+    fi
+  else
+    result WARN "Admin UI: 'ss' not available — cannot check the TCP 4000 listener"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# 11. OPMON presence
+# ---------------------------------------------------------------------------
+check_opmon_presence() {
+  local has_opmon_pkg
+  has_opmon_pkg="$(dpkg-query -W -f='${Status}' xroad-addon-opmonitoring 2>/dev/null || true)"
+
+  if [[ "$has_opmon_pkg" == *"install ok installed"* ]]; then
+    local active
+    active="$(systemctl show -p ActiveState --value xroad-opmonitor 2>/dev/null || echo unknown)"
+    if [ "$active" = "active" ]; then
+      result PASS "Operational Monitoring: local OPMON installed and running"
+    else
+      result FAIL "Operational Monitoring: local OPMON installed but xroad-opmonitor is not active (ActiveState=$active)"
+    fi
+  else
+    result WARN "Operational Monitoring: local OPMON package not installed on this host. If this deployment intentionally uses remote/external OPMON, this is expected — this checker cannot safely determine that topology on its own. If not, local OPMON is mandatory and should be installed."
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Summary
+# ---------------------------------------------------------------------------
+print_summary() {
+  echo
+  echo "Summary: PASS=$PASS_COUNT WARN=$WARN_COUNT FAIL=$FAIL_COUNT SKIP=$SKIP_COUNT"
+  echo
+  if [ "$FAIL_COUNT" -gt 0 ]; then
+    echo "ACTION REQUIRED"
+    exit 1
+  else
+    echo "READY FOR INITIAL CONFIGURATION"
+    exit 0
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+main() {
+  if [ "$(id -u)" -ne 0 ]; then
+    echo "[WARN] Not running as root — some checks (service state, listeners) may be incomplete." >&2
+  fi
+
+  check_os
+  check_arch
+  check_time_sync
+  check_repository
+  check_package_version
+  check_mixed_versions
+  check_database
+  check_services
+  check_failed_units
+  check_admin_ui_listener
+  check_opmon_presence
+
+  print_summary
+}
+
+main
