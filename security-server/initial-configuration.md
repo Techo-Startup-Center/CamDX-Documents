@@ -116,13 +116,13 @@ CamDX requires one setting beyond the X-Road defaults:
 message-body-logging=false
 ```
 
-Changing a value in `local.ini` requires restarting the server for it to take effect:
+Changing a value in `local.ini` requires restarting `xroad-proxy` for it to take effect:
 
 ```bash
 sudo systemctl restart xroad-proxy
 ```
 
-**Container:** this setting is not yet supported by an evidenced container configuration mechanism. Contact CamDX for the applicable container configuration.
+**Container:** CamDX has not yet published a supported container configuration mechanism for this setting. Contact CamDX for the applicable container configuration.
 
 Contact CamDX to confirm any other setting for your deployment that is not covered by the defaults applied during installation.
 

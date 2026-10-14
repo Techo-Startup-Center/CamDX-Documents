@@ -179,11 +179,18 @@ If your deployment needs a remote/external Operational Monitoring or a remote/ex
 
 ## 6. Firewall
 
-RHEL 9 ships with `firewalld` enabled by default. Do not disable it, and do not open these ports to an entire zone. Restrict every rule to this deployment's actual authorized network, per [`../network-requirements.md`](../network-requirements.md):
+RHEL 9 ships with `firewalld` enabled by default. Do not disable it, and do not open these ports to an entire zone. Restrict every rule to this deployment's actual authorized network:
 
 ```bash
-# Replace <ZONE>, <ADMIN_CIDR>, <AUTHORIZED_PEER_CIDR> with this deployment's
-# actual values from ../network-requirements.md before running.
+# Replace <ZONE> and <ADMIN_CIDR>, <AUTHORIZED_PEER_CIDR> with this deployment's
+# actual values before running.
+#
+# <ADMIN_CIDR> is your own organization's approved administration network,
+# not a CamDX-published address; set it according to your own internal policy.
+#
+# <AUTHORIZED_PEER_CIDR> is the peer Security Server address range applicable
+# to this deployment; confirm it through your CamDX onboarding/connectivity
+# information, not from this guide.
 
 sudo firewall-cmd --zone=<ZONE> \
   --add-rich-rule='rule family="ipv4" source address="<ADMIN_CIDR>" port port="4000" protocol="tcp" accept' \
@@ -248,7 +255,7 @@ Continue to [Initial Configuration](../initial-configuration.md) to connect this
 
 ## 10. Installation failed?
 
-See [`../troubleshooting/connectivity.md`](../troubleshooting/connectivity.md). Preserve the exact error text/code before contacting CamDX.
+See [`../troubleshooting/README.md`](../troubleshooting/README.md). Preserve the exact error text/code before contacting CamDX.
 
 ## 11. References
 

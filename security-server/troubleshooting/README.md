@@ -13,7 +13,7 @@ Arrived here with a symptom or an error message? Start with the table below.
 | OCSP error | [Error Reference](./error-reference.md) / Contact CamDX |
 | Global configuration expired/not updating | [Error Reference](./error-reference.md) / Contact CamDX |
 | Database connection error | [Error Reference](./error-reference.md) / Contact CamDX |
-| OPMON data unavailable | [Error Reference](./error-reference.md) / Contact CamDX |
+| OPMON data unavailable | [Connectivity, Operational Monitoring troubleshooting](./connectivity.md#13-operational-monitoring-troubleshooting) / Contact CamDX |
 | Unknown X-Road error/message | [Error reference](./error-reference.md) |
 
 If no dedicated guide is linked above, check the [Error Reference](./error-reference.md), collect the diagnostic information below, and contact CamDX if the issue remains unresolved.

@@ -4,6 +4,8 @@ This document is for new container deployments. If this is an existing CamDX Sec
 
 This guide gets a fresh Security Server deployed and ready for [Initial Configuration](../initial-configuration.md). It does not configure your member identity, Security Server Code, token, keys, certificates, or registration, that is a separate step, covered there.
 
+**Before production handoff:** CamDX requires `message-body-logging=false` (see [Initial Configuration](../initial-configuration.md)). Applying this on a container deployment currently requires CamDX-provided container configuration guidance. Contact CamDX for this before going to production.
+
 ## 1. Image identity
 
 | Field | Value |
@@ -159,7 +161,7 @@ If using the local-PostgreSQL path (§6) instead of the external-database patter
 
 Use the official `postgres:16` image, not a CamDX-modified one.
 
-`postgres:16` is a mutable tag, not a pinned digest; the validated deployment did not capture an immutable PostgreSQL digest. Do not assume a later pull of `postgres:16` necessarily gives you the identical PostgreSQL artifact that was originally validated. Do not substitute an arbitrary digest and treat it as CamDX-validated. If your deployment requires immutable PostgreSQL image pinning, coordinate with CamDX on the artifact to record/use.
+`postgres:16` is a mutable tag, not a pinned digest; CamDX has not published an immutable PostgreSQL digest for this deployment. Do not assume a later pull of `postgres:16` necessarily gives you the identical PostgreSQL artifact that was originally validated. Do not substitute an arbitrary digest and treat it as CamDX-validated. If your deployment requires immutable PostgreSQL image pinning, coordinate with CamDX on the artifact to record/use.
 
 **Credential rotation:** `XROAD_DB_PWD` is consumed only at first initialization. Changing the environment variable on an already-initialized external database does not change the stored PostgreSQL role password. To rotate it on a running deployment:
 

@@ -15,7 +15,7 @@ Before you start troubleshooting:
 
 **What it means:** The PIN presented to unlock the software token does not match the token's actual PIN.
 
-**Common causes:** For the container deployment specifically, this is directly evidenced as a mismatch between the `XROAD_TOKEN_PIN` environment variable and the PIN the token was actually initialized with. For native (Ubuntu/RHEL) deployments, the same underlying condition applies whenever the PIN entered at the Admin UI or via `xroad-autologin`'s configured PIN source does not match the token.
+**Common causes:** For the container deployment specifically, this is a mismatch between the `XROAD_TOKEN_PIN` environment variable and the PIN the token was actually initialized with. For native (Ubuntu/RHEL) deployments, the same underlying condition applies whenever the PIN entered at the Admin UI or via `xroad-autologin`'s configured PIN source does not match the token.
 
 **Check:** `docker logs <container>` (container) or the relevant signer log (native) for repeated `USER_PIN_INCORRECT` entries; confirm what PIN value the deployment is actually configured to present.
 

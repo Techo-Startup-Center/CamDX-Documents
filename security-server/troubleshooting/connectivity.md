@@ -157,7 +157,7 @@ A local `/etc/hosts` mapping can silently redirect the Security Server to a diff
    docker exec camdx-security-server getent hosts <hostname>
    ```
 
-Do not reproduce any real member-specific VIP address, private topology, or internal CamDX infrastructure address when escalating a case of this kind; use placeholders.
+Use placeholders for any real member-specific VIP address, private topology, or internal CamDX infrastructure address in a public or unapproved channel when escalating a case of this kind. See §14 for sharing real network details with CamDX through an approved support channel when CamDX requests them.
 
 ## 9. Application / service status
 
