@@ -263,7 +263,7 @@ The upstream-documented mechanism, exactly: the Security Server's own internal T
 
 ## 14. What is safe to reuse as architectural reference only
 
-The historical Ansible playbook (`ansible/`) illustrates this architecture but uses an obsolete Ubuntu/Ansible baseline and private lab addressing — retained as architectural illustration only, never as current operational guidance, and never carried into [`../network-requirements.md`](../network-requirements.md) or [`../provider-connectivity.md`](../provider-connectivity.md).
+The historical Ansible playbook (`ansible/`) illustrates this architecture but uses an obsolete Ubuntu/Ansible baseline and private lab addressing — retained as architectural illustration only, never as current operational guidance, and never carried into [`../network-requirements.md`](../network-requirements.md).
 
 ## 15. References
 

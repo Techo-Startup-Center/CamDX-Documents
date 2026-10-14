@@ -106,7 +106,7 @@ PRODUCTION ROLLOUT: GATED — MEMBER MIGRATION & RELEASE READINESS
 | Container 7.8.2 deployment ([`../container/deployment.md`](../container/deployment.md)) | In-place upgrade from 7.4.2 |
 | Canonical initial configuration ([`../initial-configuration.md`](../initial-configuration.md)) | Member production migration (any generation, any wave, any method) |
 | Canonical network requirements ([`../network-requirements.md`](../network-requirements.md)) | Automated mass rollout |
-| Provider connectivity registry ([`../provider-connectivity.md`](../provider-connectivity.md)) | HA migration |
+| | HA migration |
 | Connectivity troubleshooting ([`../troubleshooting/connectivity.md`](../troubleshooting/connectivity.md)) | Production-wide switch of the member estate |
 | Frozen release packages/images, exactly as already validated (§2) | Central Server production migration |
 | Parallel Replacement / Blue-Green **implementation pattern** (§4, §5 — decision `03-A2`) | Arbitrary/ad hoc downgrade or rollback procedure |
@@ -313,7 +313,6 @@ This document does not duplicate the content of the documents it links to:
 - [`../container/deployment.md`](../container/deployment.md) — container fresh-deployment procedure
 - [`../initial-configuration.md`](../initial-configuration.md) — deployment-independent initial configuration workflow
 - [`../network-requirements.md`](../network-requirements.md) — authoritative CamDX infrastructure connectivity matrix
-- [`../provider-connectivity.md`](../provider-connectivity.md) — provider-specific endpoint connectivity registry
 - [`../troubleshooting/connectivity.md`](../troubleshooting/connectivity.md) — connectivity diagnosis for an existing or newly-deployed Security Server
 - [`../../release-notes/7.8.2.md`](../../release-notes/7.8.2.md) — full validated scope of the CamDX 7.8.2 package/container work, and the complete list of open tracks
 - [`parallel-replacement.md`](./parallel-replacement.md) — the detailed Parallel Replacement / Blue-Green member migration procedure derived from the pattern approved in §4/§5 (decision `03-A2`); currently a draft, pending final review, not yet final operational documentation

@@ -20,7 +20,7 @@ If no dedicated guide is linked above, check the [Error Reference](./error-refer
 
 ## Before contacting CamDX
 
-Please have the following ready — it speeds up every support request:
+Please have the following ready, it speeds up every support request:
 
 - Security Server version (platform and package/image version)
 - Operating system and version
@@ -38,7 +38,7 @@ Please have the following ready — it speeds up every support request:
 - Personal access tokens (PAT) or API tokens
 - Private keys
 - Full secret-bearing configuration files
-- Sensitive API payloads — unless specifically requested through an approved CamDX support channel
+- Sensitive API payloads, unless specifically requested through an approved CamDX support channel
 
 ## Error reference
 

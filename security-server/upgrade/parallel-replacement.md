@@ -191,7 +191,7 @@ Before any meaningful cutover, confirm and document actual evidence for:
 - Message logging is present on NEW.
 - OPMON is present on NEW.
 - Source/NAT behavior for NEW is correct (matches what any provider allowlist or peer expects).
-- Required provider allowlists have been updated to include NEW's observed source address, where applicable (see [`../provider-connectivity.md`](../provider-connectivity.md) §5 for the source-IP-registration model).
+- Required provider allowlists have been updated to include NEW's observed source address, where applicable; coordinate with CamDX for the source-IP-registration process.
 
 **Document the actual evidence collected — do not assert these criteria are met without a corresponding observation recorded for this specific migration.**
 
