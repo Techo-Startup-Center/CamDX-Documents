@@ -79,3 +79,25 @@ Operational Monitoring is a mandatory capability for a CamDX Security Server (se
 
 - **Local Operational Monitoring (default)**: the Security Server reaches its own local Operational Monitoring daemon over TCP `2080` on the internal network.
 - **Remote / external Operational Monitoring (supported alternative)**: the Security Server reaches a dedicated Operational Monitoring node outside the Security Server, which may serve one or more Security Servers depending on the approved topology. This is not an HA-only mechanism. Contact CamDX if you need this topology.
+
+## 8. Native HA connectivity
+
+A replicated native HA pair ([Ubuntu HA](./ubuntu/high-availability-installation.md), [RHEL HA](./rhel/high-availability-installation.md)) needs the connectivity below between the two nodes, between the nodes and the external load balancer, and between the nodes and CamDX. All of the connectivity in §2-§7 above applies identically to both active nodes; it is not listed again here.
+
+| Source | Destination | Port | Purpose |
+|---|---|---:|---|
+| Secondary | Primary | `22/TCP` | `rsync` over SSH, configuration synchronization |
+| Secondary | Primary | `5433/TCP` (or the configured `serverconf` replication port) | PostgreSQL streaming replication |
+| Load balancer | Primary, Secondary | `5588/TCP` | HTTP health check |
+| Load balancer / authorized peers | Primary, Secondary | `5500/TCP` | X-Road peer traffic |
+| Load balancer / authorized peers | Primary, Secondary | `5577/TCP` | Peer/OCSP-related traffic |
+| Internal consumer network / load balancer | Primary, Secondary | Deployment-specific client-proxy port | Consumer information-system traffic |
+| Administration network | Primary, Secondary | `4000/TCP` | Administration/diagnostics |
+
+- Every rule in §2 (outbound to CamDX) and §3/§7 (inbound CamDX monitoring, Operational Monitoring) applies to **each** active node independently, not only to whichever node currently carries traffic.
+- Port `5566` is local proxy-administration/maintenance control, used for the maintenance-mode toggle in each installation guide's acceptance test. It must not be exposed as a general network service; it is reached locally on each node, not through the load balancer.
+- Port `2080` (local Operational Monitoring, §7) remains local/internal to each node.
+- The replication port (`5433` or as configured) and SSH (`22`) must be restricted to the two cluster nodes only, never opened broadly.
+- The health-check port (`5588`) should be reachable only from the load balancer's own health-check source address(es), not from the general network.
+- Do not load-balance the Admin UI (`4000`) as if both nodes were equally writable; the secondary's Admin UI is read-only except for token/PIN operations. Route administrators to the primary directly, or scope the VIP's `4000` forwarding accordingly.
+- External traffic to `5500`/`5577` and the client-proxy port must use Layer 4/TCP passthrough; TLS termination stays on the Security Server, never on the load balancer.

@@ -132,6 +132,25 @@ Operational Monitoring capability is required for every CamDX Security Server. L
 
 Remote/external Operational Monitoring is a supported alternative: a dedicated Operational Monitoring node outside the Security Server, which may serve one or more Security Servers depending on the approved topology. This is not an HA-only mechanism. If your deployment requires this topology, contact CamDX before deployment.
 
-## 14. References
+## 14. High Availability
+
+This section applies only to a replicated native HA deployment ([Ubuntu HA](./ubuntu/high-availability-installation.md), [RHEL HA](./rhel/high-availability-installation.md)). It does not change anything in §1-§13 above for a standalone deployment.
+
+**Logical Security Server address:** for a replicated external-load-balancer HA deployment, the logical Security Server external address is the approved HA load-balancer/VIP FQDN or external address recorded in the HA Deployment Profile. Use that address for the authentication-certificate CSR and Security Server registration wherever this document asks for the Security Server's DNS name/FQDN or external address. Do not register either backend node's own private/node FQDN as the logical Security Server address. Confirm the HA FQDN actually resolves to, and routes to, the load balancer/VIP, which then performs Layer-4 TCP passthrough to the backend nodes, before submitting the CSR.
+
+For a replicated native HA deployment:
+
+1. Complete the HA infrastructure/replication procedure first (the installation guide's Phases 0-17), including the secondary's `serverconf` database connection (Phase 10).
+2. Perform this entire Initial Configuration document on the **primary node only**, using the logical HA address above wherever an external/DNS address is asked for.
+3. Do not initialize the secondary as another Security Server: do not import the configuration anchor, create a token, generate keys, or attempt registration there.
+4. After Initial Configuration on the primary completes, perform the installation guide's one-time bootstrap synchronization (Phase 19) once, manually; this carries the initial global configuration and signer/token state to the secondary. `serverconf` itself is already live on the secondary continuously, via PostgreSQL streaming replication, independent of this sync.
+5. Verify the secondary reflects the same logical Security Server identity, not a separate one, and that its global configuration is valid and independently refreshing (Phase 21).
+6. Log in/unlock the software token on the secondary using the approved mechanism (manual PIN entry by a retained security-officer role); it does not unlock automatically when the token file is replicated.
+7. Use the secondary's Admin UI as read-only, except for the token/PIN operations the retained `xroad-security-officer` role permits.
+
+See the installation guide's own Phase 10 and Phase 18-21 for the exact commands and verification steps.
+
+## 15. References
 
 - [`network-requirements.md`](./network-requirements.md): connectivity this configuration workflow depends on.
+- [Ubuntu HA Installation](./ubuntu/high-availability-installation.md), [RHEL HA Installation](./rhel/high-availability-installation.md): the HA-specific procedure §14 above refers to.

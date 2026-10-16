@@ -32,7 +32,15 @@ Something not working? Start here: **[Troubleshooting index](./troubleshooting/R
 
 ## High Availability
 
-If your organization requires High Availability, contact CamDX before deployment.
+A native HA deployment requires a completed [HA Deployment Profile](./high-availability-deployment-profile.md) with Checkpoint A confirmed before you start. Once you have that:
+
+| Platform | Guidance |
+|---|---|
+| Ubuntu 22.04 / 24.04 | [Ubuntu HA installation](./ubuntu/high-availability-installation.md) |
+| RHEL 9 | [RHEL HA installation](./rhel/high-availability-installation.md) |
+| Container | Not currently a standard CamDX deployment option |
+
+See [Deployment Model Selector](./deployment-models.md) for how HA compares to other deployment models.
 
 ## Upgrade / migration
 

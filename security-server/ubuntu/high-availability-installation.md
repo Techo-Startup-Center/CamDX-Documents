@@ -1,162 +1,774 @@
-# CamDX Security Server - Ubuntu High Availability Architecture and Deployment Guidance
+# CamDX Security Server - Ubuntu HA Installation
 
-Existing CamDX HA deployments remain supported. For a new HA deployment, an upgrade of an existing HA deployment, or a topology change, coordinate with CamDX before implementation.
+This is an executable procedure for deploying a native CamDX Security Server HA pair on Ubuntu: a primary and secondary node, replicated `serverconf`, synchronized configuration state, and an external load balancer. It assumes Linux administration experience and CamDX onboarding information, but no prior X-Road HA experience.
 
-This document describes the architecture, operational requirements, and constraints. It is not authorization to deploy or modify an HA pair independently; exact configuration values for your deployment are confirmed with CamDX during HA deployment planning.
+Existing CamDX deployments using this architecture remain supported. A new HA deployment, an upgrade of an existing one, or a topology change requires a completed [HA Deployment Profile](../high-availability-deployment-profile.md) with Checkpoint A confirmed before you start Phase 1.
 
-## 1. Architecture overview
+## 0. Architecture summary
 
-A **primary** Security Server and one or more **secondary** Security Servers form a logical pair/cluster behind an external, member-operated load balancer. Consumers and providers see a single logical Security Server identity; the load balancer distributes connections across the underlying nodes.
+A single logical Security Server, identified by one Security Server Code, runs as a **primary** and **secondary** node behind an external Layer-4 load balancer. The primary is the only node where configuration changes originate. `serverconf` replicates continuously via PostgreSQL streaming replication; the remaining shared `/etc/xroad` state (signing/authentication keys and token state) replicates via `rsync` over SSH, once as a one-time bootstrap and then on a schedule. There is no automatic failover: promoting a different node to primary is always a manual, deliberate action, not covered by this installation procedure (see §29).
 
-What makes this one logical Security Server:
-
-- A single Security Server Code/identity, shared configuration (`serverconf`), and shared key material (`keyconf`/software token) across all nodes.
-- The external load balancer, not X-Road itself, makes the pair appear as one address to consumers/providers.
-
-This architecture's goal is load balancing, not full fault tolerance: some in-flight X-Road messages can still be lost if a node fails, and failover (primary-to-secondary promotion) is a manual operation, not automatic; see §7.
-
-## 2. PostgreSQL and `serverconf` replication
-
-A separate, dedicated PostgreSQL instance is used for the `serverconf` database (historically on port `5433`), distinct from any other local database. The primary instance is the write target; streaming replication (hot standby) propagates `serverconf` to each secondary, which serves it read-only. Replication authentication uses TLS client certificates (`hostssl replication ... cert` in `pg_hba.conf`), signed by a dedicated CA.
-
-The PostgreSQL major version available depends on your host's configured package repositories, not a version pinned by the CamDX package itself. Confirm the resolved version with `pg_lsclusters` (after install) or `apt-cache policy postgresql` (before install), and confirm the exact value and any version-specific parameter naming (for example `wal_keep_size` vs. an older `wal_keep_segments`) with CamDX during HA deployment planning.
-
-**Reference replication parameters** (confirm exact values for your deployment with CamDX):
-
-Primary instance:
 ```text
+Clean Node 1                              Clean Node 2
+   standalone package install                standalone package install
+   convert to HA primary                      convert to HA secondary
+   Primary / master                           Secondary / slave
+
+Primary serverconf PostgreSQL <--streaming replication-- Secondary serverconf PostgreSQL
+Primary /etc/xroad selected state --rsync + SSH---------> Secondary /etc/xroad selected state
+
+                      External L4 load balancer (TLS passthrough only)
+                          /                              \
+                     Primary                          Secondary
+```
+
+PostgreSQL streaming replication flows from primary to secondary, but the secondary is the one that *initiates* the TCP connection to the primary (secondary to primary on TCP `5433`). The same direction applies to SSH/`rsync` (secondary to primary on TCP `22`). Keep this direction in mind in the firewall and SSH-trust phases below.
+
+**Member Initial Configuration is performed on the primary only, once (Phase 18).** The secondary is never independently initialized as a second logical Security Server; it receives the shared identity through replication and a one-time bootstrap sync, not through its own registration.
+
+## Checkpoints - where you genuinely need CamDX
+
+The normal, successful installation path has exactly three planned CamDX checkpoints. Everything else below is self-contained.
+
+- **Checkpoint A, before you start (Phase 0):** your [HA Deployment Profile](../high-availability-deployment-profile.md) is completed and CamDX has authorized this HA deployment (environment, member identity, Security Server Code, onboarding status).
+- **Checkpoint B, normal PKI/registration (Phase 18, via [Initial Configuration](../initial-configuration.md)):** AUTH/SIGN CSR submission, certificate issuance, authentication-certificate registration approval, and subsystem registration approval. This is CamDX's normal onboarding process; HA does not add an exception to it.
+- **Checkpoint C, acceptance (Phase 28):** CamDX central monitoring visibility, final registration confirmation, and production go-live authorization.
+
+This runbook provides the PostgreSQL, SSH, `rsync`, systemd, firewall, and health-check mechanics directly. If a documented **STOP** condition occurs, additional troubleshooting or escalation may be required; see §30. Do not improvise around a **STOP** condition.
+
+## 1. Before you start
+
+- Two fresh Ubuntu hosts, **both on the same supported release**: Ubuntu 22.04 + Ubuntu 22.04, or Ubuntu 24.04 + Ubuntu 24.04 (amd64 each). A mixed Jammy/Noble pair is not a supported standard pair.
+- Root/sudo access on both.
+- Your [HA Deployment Profile](../high-availability-deployment-profile.md), completed per Checkpoint A.
+- The HA network ports open per [Network Requirements](../network-requirements.md) §8.
+- A load balancer capable of Layer 4/TCP passthrough, administered by your own team.
+
+## Phase 0 - Complete the HA Deployment Profile
+
+Open the [HA Deployment Profile](../high-availability-deployment-profile.md). Fill in every CamDX-provided/CamDX-confirmed field (§1) and every member-owned infrastructure field (§2) you will need below.
+
+**STOP** if any required field is unknown. Confirm CamDX-provided fields with CamDX (Checkpoint A) and resolve member-owned fields with your own network/infrastructure team before continuing.
+
+Throughout this guide, `<PRIMARY_NODE>`, `<SECONDARY_NODE>`, `<PRIMARY_IP>`, `<SECONDARY_IP>`, and `<SECONDARY_SOURCE_CIDR>` refer to the values you just recorded. `<SECONDARY_SOURCE_CIDR>` is the secondary's replication/SSH source address as the primary actually observes it (HA Deployment Profile §2); it is not always the same as `<SECONDARY_IP>` if NAT sits between the two nodes.
+
+## Phase 1 - Provision and verify both clean Ubuntu nodes
+
+On **each** node, verify:
+
+```bash
+hostname -f
+cat /etc/os-release
+timedatectl status
+ip route
+```
+
+- Both nodes report the **same** `VERSION_CODENAME` (both `jammy`, or both `noble`). **STOP** if they differ; a mixed pair is not supported.
+- `hostname -f` returns the FQDN you recorded in the HA Deployment Profile.
+- DNS resolves both nodes' FQDNs and the VIP's FQDN from each node.
+- `timedatectl status` shows `System clock synchronized: yes`; both nodes use the same NTP source recorded in the profile.
+- `ip route` confirms each node can route to the other node's IP and to the load balancer.
+- The HA network ports in [Network Requirements](../network-requirements.md) §8 are open between the nodes, to the load balancer, and to CamDX.
+- You have root/sudo on both hosts.
+- Neither host has any prior X-Road package or `/etc/xroad` state (a genuinely clean host).
+
+**STOP** if any check fails. Resolve it before continuing; do not work around a routing or DNS problem by hardcoding IPs where this guide expects a name, or vice versa.
+
+## Phase 2 - Install CamDX Security Server on both nodes
+
+Use the same validated installer as a standalone deployment, on **each** clean node:
+
+```bash
+cd security-server/scripts
+sudo ./install-ubuntu.sh
+```
+
+See [Ubuntu Standalone Installation](./standalone-installation.md) §2 for what the script does; it installs local Operational Monitoring automatically as part of the standard install, on both nodes. **Do not run Initial Configuration yet** on either node.
+
+On each node, confirm the installation is readiness-clean:
+
+```bash
+sudo ./camdx-ss-check
+```
+
+Expect `Summary: PASS=... WARN=0 FAIL=0 SKIP=...` and `READY FOR INITIAL CONFIGURATION` on both nodes. No warning is expected at this point. If either node reports `ACTION REQUIRED`, resolve every listed `FAIL` before continuing to Phase 3.
+
+## Phase 3 - Stop X-Road services for HA conversion
+
+On **both** nodes, stop the application-level X-Road services before changing anything under `/etc/xroad`:
+
+```bash
+sudo systemctl stop xroad-proxy xroad-proxy-ui-api xroad-confclient xroad-signer xroad-monitor xroad-addon-messagelog
+```
+
+Leave running: `xroad-base` (a one-shot unit; there is nothing to stop), the local PostgreSQL instance installed by `xroad-database-local` (you need it running to read from it in Phase 7), and `xroad-opmonitor` (already installed in Phase 2, independent of `serverconf`, left running on both nodes throughout this procedure).
+
+Confirm the stop took effect:
+
+```bash
+systemctl is-active xroad-proxy xroad-proxy-ui-api xroad-confclient xroad-signer xroad-monitor xroad-addon-messagelog
+```
+
+Expect `inactive` for each.
+
+## Phase 4 - Confirm both nodes resolve to the same PostgreSQL major version
+
+On **each** node, determine the installed PostgreSQL cluster:
+
+```bash
+pg_lsclusters
+```
+
+This lists `<version> <clustername> <port> <status> ...`; the default cluster from `xroad-database-local` is named `main`. Then confirm the actual running server version directly, on **each** node, with a live query (do not rely on the cluster listing alone):
+
+```bash
+sudo -u postgres psql -Atc 'SHOW server_version;'
+```
+
+Record the major version number (the leading integer, for example `16` from `16.4`) from both nodes as `<PG_MAJOR>` in your HA Deployment Profile §3.
+
+**STOP if the two nodes do not resolve to the same PostgreSQL major version.** Do not proceed with a mixed-major-version pair; resolve the discrepancy (typically by confirming both nodes are genuinely on the same Ubuntu release per Phase 1) before continuing. Substitute your confirmed `<PG_MAJOR>` in every command below.
+
+## Phase 5 - Create the database-replication CA and node certificates
+
+Run this on a secure admin workstation, **not** on either cluster node.
+
+```bash
+mkdir -p ha-ca && cd ha-ca
+
+# Certificate authority for this HA pair's serverconf replication only
+openssl genrsa -out ca.key 4096
+openssl req -new -x509 -days 3650 -key ca.key -out ca.crt -subj "/CN=<PRIMARY_NODE>-serverconf-ca"
+
+# Primary node certificate
+openssl genrsa -out server-primary.key 2048
+openssl req -new -key server-primary.key -out server-primary.csr -subj "/CN=<PRIMARY_NODE>"
+openssl x509 -req -in server-primary.csr -CA ca.crt -CAkey ca.key -CAcreateserial -days 3650 -out server-primary.crt
+
+# Secondary node certificate. The CN MUST match the PostgreSQL
+# replication role name you create in Phase 6, since certificate-based
+# authentication matches on this exact value.
+openssl genrsa -out server-secondary.key 2048
+openssl req -new -key server-secondary.key -out server-secondary.csr -subj "/CN=<secondary_replication_role>"
+openssl x509 -req -in server-secondary.csr -CA ca.crt -CAkey ca.key -CAcreateserial -days 3650 -out server-secondary.crt
+```
+
+Record `<secondary_replication_role>` in your HA Deployment Profile §3; you use it again in Phase 6 and Phase 8.
+
+Each node uses the **same local filenames** for its own certificate/key, even though the certificates themselves are different per node. Copy files to each node accordingly, then set ownership and permissions so PostgreSQL (which runs as the `postgres` user) can read them, but nothing else can read the private keys:
+
+```bash
+# On the primary, copy ca.crt, and server-primary.crt/.key renamed to server.crt/server.key, into /etc/xroad/postgresql/:
+sudo mkdir -p /etc/xroad/postgresql
+sudo chown postgres:postgres /etc/xroad/postgresql/ca.crt /etc/xroad/postgresql/server.crt /etc/xroad/postgresql/server.key
+sudo chmod 644 /etc/xroad/postgresql/ca.crt /etc/xroad/postgresql/server.crt
+sudo chmod 600 /etc/xroad/postgresql/server.key
+
+# On the secondary, copy ca.crt, and server-secondary.crt/.key renamed to server.crt/server.key, into /etc/xroad/postgresql/:
+sudo mkdir -p /etc/xroad/postgresql
+sudo chown postgres:postgres /etc/xroad/postgresql/ca.crt /etc/xroad/postgresql/server.crt /etc/xroad/postgresql/server.key
+sudo chmod 644 /etc/xroad/postgresql/ca.crt /etc/xroad/postgresql/server.crt
+sudo chmod 600 /etc/xroad/postgresql/server.key
+```
+
+Both nodes now have a file at `/etc/xroad/postgresql/server.crt` and `/etc/xroad/postgresql/server.key`, but the contents differ: each node's copy is its own node-specific certificate and key. This matches the configuration paths used in Phase 6 and Phase 8 below, and is never synchronized by `rsync` (the exclusion lists in Phase 12 and Phase 19 both cover this directory).
+
+**CA private key lifecycle:** `ca.key` was generated only on this admin workstation. Once both nodes have their issued certificates, either move `ca.key` to your organization's approved secure key storage (if you expect to issue or replace node certificates later) or, if your organization's lifecycle plan is to replace the whole replication trust chain rather than reissue from this CA, you may retire it according to that plan. In either case, **do not leave `ca.key` on the admin workstation indefinitely, and never copy it to either Security Server node.**
+
+## Phase 6 - Create the dedicated primary `serverconf` PostgreSQL instance
+
+On the **primary** node:
+
+```bash
+sudo -u postgres pg_createcluster -p 5433 <PG_MAJOR> serverconf
+sudo pg_ctlcluster <PG_MAJOR> serverconf start
+```
+
+Record the actual config and data paths this created in your HA Deployment Profile §3 (typically `/etc/postgresql/<PG_MAJOR>/serverconf/postgresql.conf` and `/var/lib/postgresql/<PG_MAJOR>/serverconf`; confirm with `pg_lsclusters` rather than assuming).
+
+Edit `postgresql.conf` for the `serverconf` cluster:
+
+```ini
 ssl = on
 ssl_ca_file = '/etc/xroad/postgresql/ca.crt'
 ssl_cert_file = '/etc/xroad/postgresql/server.crt'
 ssl_key_file = '/etc/xroad/postgresql/server.key'
 
-listen_addresses = '*'          # or the specific interface secondaries connect over
+listen_addresses = '*'
 wal_level = replica
-max_wal_senders = 3             # approximately (number of secondaries) plus headroom
-wal_keep_size = 8               # confirm the parameter name for your PostgreSQL version
+max_wal_senders = 3
+wal_keep_size = 8
 ```
 
+`wal_keep_size` is the current parameter name for PostgreSQL 13 and later; if `<PG_MAJOR>` is below 13, use `wal_keep_segments` instead.
+
+Edit `pg_hba.conf` for the `serverconf` cluster, adding:
+
 ```text
-# pg_hba.conf, on the primary
-hostssl replication +secondarynode <secondary-node-CIDR> cert
+hostssl replication <secondary_replication_role> <SECONDARY_SOURCE_CIDR> cert
 ```
 
-Secondary instance:
-```text
-ssl = on
-ssl_ca_file = '/etc/xroad/postgresql/ca.crt'
-ssl_cert_file = '/etc/xroad/postgresql/server_<node>.crt'
-ssl_key_file = '/etc/xroad/postgresql/server_<node>.key'
-listen_addresses = 'localhost'  # read-only standby; do not expose beyond localhost without a specific reason
+Create the replication role and the application role X-Road itself will use:
 
+```bash
+sudo -u postgres psql -p 5433 -c "CREATE ROLE <secondary_replication_role> WITH REPLICATION LOGIN;"
+
+GENERATED_PW="$(openssl rand -base64 24)"
+sudo -u postgres psql -p 5433 -c "CREATE ROLE serverconf WITH LOGIN PASSWORD '$GENERATED_PW';"
+sudo -u postgres psql -p 5433 -c "CREATE DATABASE serverconf OWNER serverconf;"
+printf 'serverconf role password: %s\n' "$GENERATED_PW"
+unset GENERATED_PW
+```
+
+Copy the printed password immediately into your organization's secret storage. You need this exact value twice: once for the primary's `db.properties` in Phase 7, and again for the secondary's `db.properties` in Phase 10: the role is physically replicated, so both nodes must use the identical password. The replication role itself needs no password: `cert` authentication in `pg_hba.conf` matches on certificate CN.
+
+Restart the `serverconf` cluster to apply the configuration changes:
+
+```bash
+sudo pg_ctlcluster <PG_MAJOR> serverconf restart
+```
+
+## Phase 7 - Move the primary `serverconf` into the dedicated instance
+
+On the **primary** node, the default local cluster (port `5432`, created by `xroad-database-local`) still holds the original `serverconf` and `messagelog` databases. Copy `serverconf` into the new dedicated instance:
+
+```bash
+sudo -u postgres pg_dump -p 5432 serverconf | sudo -u postgres psql -p 5433 serverconf
+```
+
+Repoint `/etc/xroad/db.properties` on the **primary** so X-Road's `serverconf` connection uses the new instance, leaving the `messagelog` entry untouched:
+
+```ini
+# Only the serverconf stanza changes. Leave messagelog pointed at port 5432.
+serverconf.hibernate.connection.url = jdbc:postgresql://127.0.0.1:5433/serverconf
+serverconf.hibernate.connection.username = serverconf
+serverconf.hibernate.connection.password = <the password generated in Phase 6>
+```
+
+**Do not delete the original `serverconf` database on port 5432 yet.** Keep it until replication to the secondary is confirmed healthy (Phase 9) and you have completed Phase 28's acceptance checklist. `messagelog` stays on the node-local default instance permanently; it is never moved.
+
+## Phase 8 - Seed the secondary `serverconf`
+
+On the **secondary** node:
+
+```bash
+sudo -u postgres pg_createcluster -p 5433 <PG_MAJOR> serverconf
+sudo pg_ctlcluster <PG_MAJOR> serverconf stop
+```
+
+Clear the new, still-empty data directory before basebackup. **Verify the exact path before deleting anything**:
+
+```bash
+SERVERCONF_DATA_DIR="/var/lib/postgresql/<PG_MAJOR>/serverconf"
+
+case "$SERVERCONF_DATA_DIR" in
+  */serverconf) ;;
+  *) echo "STOP: path does not end in /serverconf - refusing to continue." >&2; exit 1 ;;
+esac
+sudo test -d "$SERVERCONF_DATA_DIR" || { echo "STOP: $SERVERCONF_DATA_DIR does not exist." >&2; exit 1; }
+
+sudo -u postgres find "$SERVERCONF_DATA_DIR" -mindepth 1 -delete
+```
+
+Take the base backup from the primary, authenticating with the secondary's own replication certificate (the primary's `pg_hba.conf` requires `cert` authentication, so a plain `pg_basebackup` without these variables will fail; do not fall back to a password):
+
+```bash
+sudo -u postgres \
+  PGSSLMODE=verify-ca \
+  PGSSLROOTCERT=/etc/xroad/postgresql/ca.crt \
+  PGSSLCERT=/etc/xroad/postgresql/server.crt \
+  PGSSLKEY=/etc/xroad/postgresql/server.key \
+  pg_basebackup \
+    -h <PRIMARY_IP> \
+    -p 5433 \
+    -U <secondary_replication_role> \
+    -D "$SERVERCONF_DATA_DIR" \
+    -Fp -Xs -P --checkpoint=fast
+
+sudo -u postgres touch "$SERVERCONF_DATA_DIR/standby.signal"
+```
+
+Edit `postgresql.conf` for the secondary's `serverconf` cluster:
+
+```ini
+listen_addresses = 'localhost'
 hot_standby = on
 hot_standby_feedback = on
 
-primary_conninfo = 'host=<primary-host> port=5433 user=<secondary-role> sslmode=verify-ca sslcert=/etc/xroad/postgresql/server_<node>.crt sslkey=/etc/xroad/postgresql/server_<node>.key sslrootcert=/etc/xroad/postgresql/ca.crt'
+primary_conninfo = 'host=<PRIMARY_IP> port=5433 user=<secondary_replication_role> sslmode=verify-ca sslcert=/etc/xroad/postgresql/server.crt sslkey=/etc/xroad/postgresql/server.key sslrootcert=/etc/xroad/postgresql/ca.crt'
 ```
 
-A `standby.signal` file (modern PostgreSQL) or a `recovery.conf` (pre-12 PostgreSQL) marks the secondary as a standby; which applies depends on the resolved PostgreSQL version.
-
-## 3. State replication scope
-
-| Item | Replicated? | Why |
-|---|---|---|
-| `serverconf` database | Yes, via PostgreSQL streaming replication (§2) | Shared logical configuration state |
-| `signer/keyconf.xml` and software token state under `signer/` | Yes, via scheduled `rsync`+`ssh` | AUTH/SIGN keys must be identical across nodes for both to present the same Security Server identity. This means software-token key material is physically copied to every secondary node; treat the `rsync` transport (SSH key trust, restricted service account, file permissions on arrival) with the same care as any other private-key handling. |
-| `db.properties` | No | Node-specific: each node's own file correctly points to its own local view of the replicated `serverconf` instance |
-| `postgresql/*` (under `/etc/xroad/postgresql/`) | No | Node-specific TLS certificate/key pair for the replication connection; overwriting a secondary's own key material with the primary's breaks replication |
-| `globalconf/` | No | Each node's own `xroad-confclient` independently fetches and maintains its own global configuration cache |
-| `conf.d/node.ini` | No | This is precisely the file that tells each node whether it is `type=master` or `type=slave`; replicating it would make every node claim the same role |
-| `messagelog` database | No | Each node maintains its own separate message-log database, so that `serverconf`'s streaming replication does not also have to replicate `messagelog` |
-| OCSP response cache (`/var/cache/xroad`) | No | Deliberately not replicated; regenerates from a live OCSP responder query |
-
-Reference synchronization command for the shared state above (confirm the exact flag set for your deployment with CamDX):
+Fix ownership (the base backup may have altered it) and start:
 
 ```bash
-rsync -e "ssh -o ConnectTimeout=5 " -aqz --timeout=10 --delete-delay --exclude db.properties --exclude "/conf.d/node.ini" --exclude "*.tmp" --exclude "/postgresql" --exclude "/globalconf" --exclude "/gpghome" --delay-updates --log-file=/var/log/xroad/slave-sync.log ${XROAD_USER}@${MASTER}:/etc/xroad/ /etc/xroad/
+sudo chown -R postgres:postgres "$SERVERCONF_DATA_DIR"
+sudo chmod 700 "$SERVERCONF_DATA_DIR"
+sudo pg_ctlcluster <PG_MAJOR> serverconf start
 ```
 
-If you are planning a change to what is or is not replicated, contact CamDX before implementation; this is an architecture decision, not a local configuration choice.
+## Phase 9 - Verify PostgreSQL streaming replication
 
-## 4. `node.ini` semantics
+On the **primary**:
 
-`/etc/xroad/conf.d/node.ini` determines the node's role:
+```bash
+sudo -u postgres psql -p 5433 -c "select client_addr, state, sync_state from pg_stat_replication;"
+```
+
+Expect one row, `client_addr` matching the address you recorded as `<SECONDARY_SOURCE_CIDR>` (not necessarily the secondary's own configured private IP, if NAT is involved), `state` = `streaming`.
+
+On the **secondary**:
+
+```bash
+sudo -u postgres psql -p 5433 -c "select pg_is_in_recovery();"
+sudo -u postgres psql -p 5433 -c "select status, received_lsn, latest_end_lsn from pg_stat_wal_receiver;"
+```
+
+Expect `pg_is_in_recovery()` = `t`, and `pg_stat_wal_receiver.status` = `streaming`.
+
+**STOP** if either side does not show streaming replication. Check the PostgreSQL logs on both nodes (`/var/log/postgresql/postgresql-<PG_MAJOR>-serverconf.log`) for the specific connection or certificate error before continuing; see [HA Troubleshooting](../troubleshooting/high-availability.md) for the common causes.
+
+## Phase 10 - Configure the secondary's `db.properties`
+
+**This step is required and easy to miss: a fresh standalone installation does not leave the secondary already pointed at the replicated instance.** On the **secondary**, edit `/etc/xroad/db.properties` now, before any X-Road application service on the secondary is started:
+
+```ini
+# Only the serverconf stanza changes. Leave messagelog pointed at the
+# node-local default instance (port 5432) - it is never moved.
+serverconf.hibernate.connection.url = jdbc:postgresql://127.0.0.1:5433/serverconf
+serverconf.hibernate.connection.username = serverconf
+serverconf.hibernate.connection.password = <the same password generated on the primary in Phase 6>
+```
+
+The password must be the **identical** value used on the primary: the `serverconf` role and its password are part of the database state that PostgreSQL streaming replication physically carries to the secondary, so a different local password on the secondary will not authenticate.
+
+Verify on both nodes before continuing:
+
+```text
+Primary:   serverconf -> 127.0.0.1:5433, messagelog -> 127.0.0.1:5432 (node-local)
+Secondary: serverconf -> 127.0.0.1:5433, messagelog -> 127.0.0.1:5432 (node-local)
+```
+
+**Never synchronize `db.properties` with `rsync`.** It is excluded in both Phase 12 (scheduled) and Phase 19 (one-time bootstrap) precisely because each node's copy must independently point at its own local view of the replicated instance.
+
+## Phase 11 - Configure SSH trust for configuration synchronization
+
+On the **primary**, create the dedicated synchronization account. It needs a real shell (`/bin/bash`), because `rsync` over SSH works by having `sshd` execute the remote `rsync` command on the receiving end, and a `nologin` shell would break this. The account is still non-interactive/system-only in every other respect: it has no password, and its `authorized_keys` is owned and controlled by `root`, not by the account itself.
+
+```bash
+sudo adduser --system --shell /bin/bash --ingroup xroad --home /home/xroad-slave xroad-slave
+sudo install -d -m 0750 -o root -g xroad /home/xroad-slave/.ssh
+sudo install -m 0640 -o root -g xroad /dev/null /home/xroad-slave/.ssh/authorized_keys
+```
+
+`authorized_keys` is owned by `root`, group `xroad` (the same group `xroad-slave`'s primary group membership gives it, used here only for read access, not as a separate `xroad-slave` group, which does not exist). The `xroad-slave` account itself cannot write to it (group read, no group write). `sshd` can still read it to authenticate incoming connections. The account's membership in the `xroad` group is also what lets it read the `/etc/xroad` tree that `rsync` serves.
+
+On the **secondary**, generate a key for the `xroad` system account, using a synchronization-specific key name (not the default `id_ed25519`, to keep this key's purpose unambiguous if the `xroad` account is ever used for anything else):
+
+```bash
+sudo install -d -m 0700 -o xroad -g xroad /home/xroad/.ssh
+sudo -u xroad ssh-keygen -t ed25519 -f /home/xroad/.ssh/id_xroad_sync -N ""
+sudo -u xroad cat /home/xroad/.ssh/id_xroad_sync.pub
+```
+
+As `root` on the primary, append that public key as one line to `/home/xroad-slave/.ssh/authorized_keys` (you, as an administrator with `sudo`, can write to a root-owned file; the `xroad-slave` account itself still cannot).
+
+**Verify the host key before trusting it; do not accept it merely because a connection succeeds.** Retrieve the primary's host key and compute its fingerprint:
+
+```bash
+# On the secondary:
+ssh-keyscan -t ed25519 <PRIMARY_IP> > /tmp/primary-hostkey.pub
+ssh-keygen -lf /tmp/primary-hostkey.pub -E sha256
+```
+
+Compare the printed `SHA256:...` fingerprint against your own trusted infrastructure record for `<PRIMARY_NODE>` (for example, a fingerprint recorded when that host was provisioned, or confirmed out-of-band with whoever provisioned it). **Only after the fingerprint matches**, install the verified key into the `xroad` account's own `known_hosts`:
+
+```bash
+sudo install -d -m 0700 -o xroad -g xroad /home/xroad/.ssh
+sudo -u xroad sh -c 'cat /tmp/primary-hostkey.pub >> /home/xroad/.ssh/known_hosts'
+rm -f /tmp/primary-hostkey.pub
+```
+
+Now test the connection. This should succeed with no host-key prompt, because the key is already verified and trusted:
+
+```bash
+sudo -u xroad ssh -i /home/xroad/.ssh/id_xroad_sync xroad-slave@<PRIMARY_IP> "echo connection-ok"
+```
+
+## Phase 12 - Configure and enable scheduled synchronization
+
+On the **secondary**, create `/etc/systemd/system/xroad-sync.service`:
+
+```ini
+[Unit]
+Description=X-Road Sync Task
+After=network.target
+Before=xroad-proxy.service
+Before=xroad-signer.service
+Before=xroad-confclient.service
+Before=xroad-proxy-ui-api.service
+
+[Service]
+User=xroad
+Group=xroad
+Type=oneshot
+ExecStartPre=/usr/bin/test ! -f /var/tmp/xroad/sync-disabled
+ExecStart=/usr/bin/rsync -e "ssh -i /home/xroad/.ssh/id_xroad_sync -o ConnectTimeout=5" -aqz --timeout=10 --delete-delay --exclude db.properties --exclude "/conf.d/node.ini" --exclude "*.tmp" --exclude "/postgresql" --exclude "/globalconf" --exclude "/gpghome" --delay-updates --log-file=/var/log/xroad/slave-sync.log xroad-slave@<PRIMARY_IP>:/etc/xroad/ /etc/xroad/
+
+[Install]
+WantedBy=multi-user.target
+WantedBy=xroad-proxy.service
+```
+
+and `/etc/systemd/system/xroad-sync.timer`:
+
+```ini
+[Unit]
+Description=Run CamDX X-Road configuration sync periodically
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+Unit=xroad-sync.service
+
+[Install]
+WantedBy=timers.target
+```
+
+The `Before=`/`WantedBy=xroad-proxy.service` pairing makes systemd run the sync before the dependent X-Road services at boot, rather than relying solely on the timer happening to fire first. Enable both units now; it is safe to do so before Initial Configuration exists on the primary, since there is nothing meaningful to sync yet and this periodic unit always excludes `/globalconf` (the one-time bootstrap sync in Phase 19 is a separate, manual command that does not exclude it):
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable xroad-sync.service
+sudo systemctl enable --now xroad-sync.timer
+```
+
+Verify:
+
+```bash
+systemctl is-enabled xroad-sync.service xroad-sync.timer
+systemctl list-timers xroad-sync.timer
+sudo systemctl start xroad-sync.service
+systemctl show xroad-sync.service -p Result -p ExecMainStatus -p ActiveState -p SubState
+```
+
+Expect both units `enabled`, the timer listed as active, and after the manual run: `Result=success`, `ExecMainStatus=0`, `ActiveState=inactive`, `SubState=dead`. Do not rely on the shell exit status of `systemctl status` alone to confirm a successful run; `inactive`/`dead` is the normal resting state for this one-shot unit between runs, not a failure, and the `systemctl show` fields above are the unambiguous way to confirm the run itself actually succeeded.
+
+## Phase 13 - Configure sync log rotation
+
+On the **secondary**, create `/etc/logrotate.d/xroad-slave-sync`:
+
+```text
+/var/log/xroad/slave-sync.log {
+    daily
+    rotate 7
+    missingok
+    compress
+    su xroad xroad
+    nocreate
+}
+```
+
+Confirm `/var/log/xroad/slave-sync.log` is writable by the `xroad`/`xroad` user/group that the `xroad-sync.service` unit (`User=xroad`, `Group=xroad`) runs as:
+
+```bash
+ls -l /var/log/xroad/slave-sync.log
+```
+
+## Phase 14 - Configure node roles
+
+On the **primary**, `/etc/xroad/conf.d/node.ini`:
 
 ```ini
 [node]
 type=master
 ```
-or
+
+On the **secondary**, `/etc/xroad/conf.d/node.ini`:
+
 ```ini
 [node]
 type=slave
 ```
 
-Current prose in this guide refers to these roles as "primary" and "secondary," but the literal configuration value is `master`/`slave`; there is no `type=primary`/`type=secondary` syntax. The primary is the only node where configuration changes should originate; secondaries treat their replicated configuration as read-only (enforced administratively, see §6).
+On both:
 
-## 5. External load balancer
+```bash
+sudo chown xroad:xroad /etc/xroad/conf.d/node.ini
+sudo chmod 640 /etc/xroad/conf.d/node.ini
+```
 
-- **Layer 4 / TCP-level load balancing with TLS passthrough is required.** TLS termination must be performed by the Security Server, not the load balancer. Any load balancer capable of this (nginx `stream{}`, HAProxy, a cloud network load balancer, or a hardware appliance) is acceptable.
-- **Ports requiring passthrough:** `5500` (X-Road message exchange) and `5577` (peer/OCSP-related traffic), per [Network Requirements](../network-requirements.md), at minimum; plus the consumer-information-system client ports applicable to your deployment.
-- **Disable pooled client HTTP connections** on the primary (`[proxy] server-support-clients-pooled-connections=false` in `/etc/xroad/conf.d/local.ini`): load balancing operates at the TCP level, and persistent connections would defeat even traffic distribution across nodes.
-- **Proxy admin port `5566`** is used for maintenance-mode control (§6), separate from the health-check port `5588`.
+`master` and `slave` are the literal, required X-Road configuration values; there is no `type=primary`/`type=secondary` syntax. "Primary" and "secondary" are the explanatory terms this guide and CamDX documentation use for the same two roles. This file is permanently excluded from `rsync` (Phase 12); it must never be synchronized between nodes.
 
-### 5.1 Health-check service (port `5588`)
+## Phase 15 - Restrict secondary administration
 
-Disabled by default (`health-check-port = 0`). Once enabled (`health-check-port=5588` in `/etc/xroad/conf.d/local.ini` on the primary, replicated to all nodes), it responds over plain HTTP (not HTTPS):
+On the **secondary**, for every existing Admin UI/API administrator account (including the one created during Phase 2's installation):
 
-| Response | Meaning |
-|---|---|
-| `HTTP 200 OK` | Healthy; the proxy should be able to process messages |
-| `HTTP 500 Internal Server Error` | Failed health check; a short failure reason is included in the response body |
-| `HTTP 503 Service Unavailable` (`Health check interface is in maintenance mode`) | The node has been deliberately placed into maintenance mode |
+```bash
+sudo deluser <admin-user> xroad-registration-officer
+sudo deluser <admin-user> xroad-service-administrator
+sudo deluser <admin-user> xroad-system-administrator
+```
 
-Checks performed: the server authentication key is accessible and the software token is logged in; the OCSP response for the certificate is `good`; the `serverconf` database is accessible; the global configuration is valid and not expired. Each check has a 5-second timeout; a timeout counts as a failure.
+Retain `xroad-securityserver-observer` and `xroad-security-officer`; do not remove these, as they are needed for read-only diagnostics and local token/PIN operations respectively.
 
-A successful result is cached for 2 seconds; a failed result for 30 seconds; the software-token logged-in state is cached separately for 300 seconds. Set your load balancer's health-check polling interval with these windows in mind: polling faster than 2 seconds gains nothing, and polling much slower than 30 seconds delays detecting a real failure.
+Verify:
 
-## 6. Maintenance mode and secondary-node restrictions
+```bash
+id <admin-user>
+```
 
-**Maintenance mode** is enabled/disabled via an `HTTP GET` to the proxy admin port `5566` (not `5588`): `http://localhost:5566/maintenance?targetState=true` / `...=false`, returning `200 OK` with a confirmation message. It automatically resets to disabled on the next `xroad-proxy` restart.
+Expect the group list to include `xroad-securityserver-observer` and `xroad-security-officer`, and **not** `xroad-registration-officer`, `xroad-service-administrator`, or `xroad-system-administrator`. If any of the three removed groups still appears, repeat the `deluser` command for it and verify again.
 
-**Secondary nodes are administratively restricted** to prevent configuration drift:
+## Phase 16 - Configure load-balancer behavior and the health check
 
-- Remove the `xroad-registration-officer`, `xroad-service-administrator`, and `xroad-system-administrator` roles from secondary-node Admin UI accounts.
-- Retain only `xroad-security-officer` on a secondary; it is needed for local PIN entry/token operations.
-- The management REST API on a secondary rejects configuration-modification calls; read-only access uses API keys with the `xroad-securityserver-observer` role.
-- API keys are replicated from primary to secondaries but read through a per-node cache: a key revoked or changed on the primary is not reflected on a secondary until `xroad-proxy-ui-api` is restarted on that secondary.
-- Installation scripts detect node type and adjust user-group creation accordingly on install; a version upgrade does not modify this configuration.
+On the **primary**, edit (do not overwrite) `/etc/xroad/conf.d/local.ini`. If it does not yet exist, create it with exactly this content; if it already has a `[message-log]` section, keep it and add the `[proxy]` section alongside it:
 
-## 7. Failover and primary promotion
+```ini
+[message-log]
+message-body-logging=false
 
-There is no automatic failover/promotion mechanism for the Security Server role. If the primary becomes unavailable, secondaries continue serving already-replicated configuration and can continue processing message traffic that does not require a configuration change, but no node automatically promotes itself to primary. Configuration changes cannot originate anywhere while no primary is available; promoting a different node to primary is a manual operation (changing that node's `node.ini` and re-establishing replication in the new direction), performed in coordination with CamDX.
+[proxy]
+server-support-clients-pooled-connections=false
+health-check-interface=0.0.0.0
+health-check-port=5588
+```
 
-## 8. Backup and recovery responsibilities
+`message-body-logging=false` is CamDX's required setting regardless of HA; `server-support-clients-pooled-connections=false` is required specifically for load-balanced HA, because load balancing happens at the TCP level and a pooled/persistent connection would defeat even traffic distribution. `health-check-port=5588` enables the health-check service used from Phase 22 onward.
 
-Backup scope must distinguish three kinds of state, per §3:
+This file is carried to the secondary by the one-time bootstrap sync (Phase 19) and the ongoing scheduled sync (Phase 12). `xroad-proxy` has not started yet on either node (Phase 3 stopped it, Phase 17/20 start it for the first time since), so this takes effect on first start. If you ever edit `local.ini` again after services are running, restart `xroad-proxy` for the change to take effect:
 
-| Category | Examples | Backup responsibility |
-|---|---|---|
-| Durable, shared configuration state | `serverconf` database, `signer/keyconf.xml`/software token | Must be backed up; this is the member's actual identity/configuration and cannot be regenerated |
-| Per-node message-log/archive state | `messagelog` database (node-local) | Must be backed up per node, independently; each node holds records the other does not |
-| Rebuildable/cache state | OCSP response cache | Not a backup candidate by default; it regenerates from a live OCSP responder query |
+```bash
+sudo systemctl restart xroad-proxy
+```
 
-Restoring a backup onto a rebuilt primary must not silently break the existing replication relationship with its secondaries. Contact CamDX before performing a restore or disaster-recovery procedure on an HA pair, so the replication topology can be re-established correctly afterward.
+## Phase 17 - Start the PRIMARY application services only
 
-## 9. Operational Monitoring for the HA topology
+On the **primary only**:
 
-CamDX Operational Monitoring policy is unchanged for HA: the capability is mandatory, local is the default, and remote/external is a supported alternative, not an HA-only mechanism; see [Network Requirements](../network-requirements.md) §7.
+```bash
+sudo systemctl start xroad-confclient xroad-signer xroad-proxy xroad-proxy-ui-api xroad-monitor xroad-addon-messagelog
+```
 
-A single Security Server pointed at a dedicated external Operational Monitoring daemon is a standard, generally-applicable X-Road capability, independent of HA. A separate configuration, one external Operational Monitoring daemon shared by multiple clustered (primary/secondary) Security Servers, is documented by upstream X-Road but not yet treated by upstream as officially supported; confirm with CamDX during HA deployment planning before relying on it.
+Do **not** start these services on the secondary yet; it does not have a usable configuration until after Initial Configuration and the one-time bootstrap sync (Phase 18-19).
 
-HTTPS is strongly advised for the connection between a Security Server and its external Operational Monitoring daemon. The mechanism: the Security Server's own internal TLS certificate (`/etc/xroad/ssl/internal.crt`, exportable via the Admin UI) is copied to the external daemon and referenced there as `[op-monitor] client-tls-certificate = <path>`; a separate TLS key/certificate pair is generated on the daemon host via `generate-opmonitor-certificate` and copied back to the Security Server as `[op-monitor] tls-certificate = <path>`. A further keystore/truststore pair is needed only if the request-traffic visualization on the Security Server UI Diagnostics page is used; it is not required for basic external Operational Monitoring data exchange.
+Verify on the primary:
 
-## 10. When to contact CamDX
+```bash
+systemctl is-active xroad-confclient xroad-signer xroad-proxy xroad-proxy-ui-api xroad-monitor xroad-addon-messagelog xroad-opmonitor
+```
 
-Contact CamDX before: deploying a new HA pair, changing an existing HA pair's topology or node count, changing what state is or is not replicated, promoting a secondary to primary outside of a planned procedure, or performing a backup restore/disaster-recovery procedure on an HA pair. CamDX will confirm the exact configuration values (PostgreSQL version, replication parameters, load-balancer and health-check wiring, Operational Monitoring topology) applicable to your deployment as part of that planning.
+Expect `active` for each.
 
-## 11. References
+## Phase 18 - Perform Initial Configuration on the PRIMARY ONLY
 
-- Upstream X-Road External Load Balancer Installation Guide and Security Server User Guide (`nordic-institute/X-Road`, `docs.x-road.global`).
-- [Deployment Model Selector](../deployment-models.md), [Network Requirements](../network-requirements.md).
-- [Upgrade and Migration](../upgrade/README.md): HA is not covered by the standard member migration procedure; HA upgrades are coordinated separately with CamDX.
+Complete [Initial Configuration](../initial-configuration.md) on the **primary node only**: configuration anchor import, member/Security Server Code entry, software token PIN, timestamping service, AUTH/SIGN CSRs (Checkpoint B), certificate import, authentication-certificate registration, and subsystem registration.
+
+**Use the HA load-balancer/VIP address as the Security Server's external address, not either node's own private hostname/IP.** Wherever Initial Configuration asks for the Security Server's DNS name/FQDN or external address (for example, the authentication-certificate CSR's CN/SAN, and the value submitted at registration), use the approved HA FQDN or external address recorded in your HA Deployment Profile. Do not register either backend node's own private/node FQDN as the logical Security Server address; consumers and providers reach this Security Server only through the load balancer, which performs Layer-4 TCP passthrough to whichever backend is healthy. Confirm the HA FQDN actually resolves to, and routes to, your load balancer/VIP before submitting the CSR.
+
+**Do not independently initialize the secondary as a second logical Security Server.** Do not import the configuration anchor, create a software token, generate AUTH/SIGN keys, or attempt registration on the secondary at any point. The secondary receives this same identity through the bootstrap sync in the next phase, not through its own registration.
+
+## Phase 19 - Perform the one-time initial bootstrap synchronization
+
+Now that the primary has a real configuration, copy it to the secondary once, manually, **including** `/globalconf` (unlike the ongoing scheduled sync in Phase 12, which always excludes it; see the explanation below).
+
+On the **secondary**:
+
+```bash
+sudo -u xroad rsync -e "ssh -i /home/xroad/.ssh/id_xroad_sync" -avz --delete \
+  --exclude db.properties --exclude "/postgresql" --exclude "/conf.d/node.ini" --exclude "/gpghome" \
+  xroad-slave@<PRIMARY_IP>:/etc/xroad/ /etc/xroad/
+```
+
+This bootstrap exclusion list is deliberately smaller than the ongoing scheduled sync's: it still excludes the four permanently node-local items (`db.properties`, the replication certificates under `/postgresql`, `node.ini`, and `/gpghome`), but it does **not** exclude `/globalconf`, because the secondary needs a working copy of the global configuration to start from. After this one-time copy, `xroad-confclient` running on the secondary (once started, Phase 20) independently fetches and maintains its own global configuration going forward; it does not depend on further `rsync` updates for this. That is why the ongoing scheduled sync (Phase 12) permanently excludes `/globalconf`: continuing to overwrite it from the primary's copy would fight with the secondary's own `confclient` process.
+
+## Phase 20 - Start the SECONDARY application services
+
+On the **secondary**:
+
+```bash
+sudo systemctl start xroad-confclient xroad-signer xroad-proxy xroad-proxy-ui-api xroad-monitor xroad-addon-messagelog
+```
+
+Verify:
+
+```bash
+systemctl is-active xroad-confclient xroad-signer xroad-proxy xroad-proxy-ui-api xroad-monitor xroad-addon-messagelog xroad-opmonitor
+```
+
+Expect `active` for each.
+
+## Phase 21 - Verify configuration, key, and global-configuration propagation
+
+`serverconf` (member/subsystem configuration) is already live on the secondary continuously, through PostgreSQL streaming replication. Confirm on the secondary's Admin UI (read-only) that the Clients page shows the same member/subsystem you configured on the primary.
+
+Confirm the global configuration bootstrapped correctly and that `xroad-confclient` is now maintaining it independently on the secondary:
+
+```bash
+sudo -u xroad ls -la /etc/xroad/globalconf
+```
+
+Expect recent, valid-looking global configuration content, refreshing on its own over time (confirm again a few minutes later that a timestamp has advanced), not a stale copy that never updates.
+
+Confirm the AUTH and SIGN certificate/key files under `/etc/xroad/signer` match the primary's (compare file listings/timestamps; they were carried over by the Phase 19 bootstrap sync, and will continue to be kept current by the Phase 12 scheduled sync for any future change).
+
+The software token shows as present but likely **not yet logged in** on the secondary. **This must be done explicitly**: replicating the token file does not automatically unlock it. Using the retained `xroad-security-officer` role, log in via **Keys and Certificates, Token, Login**, entering the same PIN used on the primary. Do this again after any later token-state change on the primary, or after a secondary reboot.
+
+Do not configure unattended plaintext PIN autologin (`xroad-autologin`) as the standard production path for the secondary; manual login by a security officer after each relevant event is the default here. If your organization has a specific operational reason to use autologin and wants CamDX's input on it, that is a separate decision to raise with CamDX, not part of this standard procedure.
+
+## Phase 22 - Verify the health endpoint on each node
+
+On **each** node:
+
+```bash
+curl -i http://127.0.0.1:5588/
+```
+
+Expect `HTTP/1.1 200 OK`. From the load balancer's own health-check source (or another host inside the health-check source CIDR from your HA Deployment Profile):
+
+```bash
+curl -i http://<NODE_IP>:5588/
+```
+
+`HTTP 500` means a failed check (the response body names the specific failure: token not logged in, OCSP not good, `serverconf` unreachable, or global configuration invalid/expired); `HTTP 503` means the node has been deliberately placed into maintenance mode (see Phase 26). Resolve a `500` before continuing; it is not expected at this point in a correctly completed procedure.
+
+## Phase 23 - Configure the external load balancer
+
+Your own load-balancer administrator implements this using whichever product you selected in your HA Deployment Profile. This guide states the required behavior precisely rather than any one vendor's syntax, and does not require CamDX support:
+
+- Layer 4 / TCP load balancing with TLS passthrough. The load balancer must not terminate TLS; the Security Server does that. This does not eliminate the possibility of some in-flight message loss on a node failure; it is a load-balancing architecture, not a zero-loss fault-tolerance guarantee.
+- Health check: `HTTP GET` to port `5588` on each backend, expecting `200`. A backend must be removed from rotation on any other response.
+- Forward TCP `5500` and `5577` to both nodes, per [Network Requirements](../network-requirements.md) §8.
+- Forward your deployment's client-proxy port to both nodes, if consumer information systems reach this Security Server through the VIP.
+- Do not load-balance TCP `4000` (Admin UI) as if both nodes were equally writable; the secondary's UI is read-only. Point administrators at the primary directly, or make the VIP's `4000` forwarding explicit about which node it reaches, per your own administration network's needs.
+- Support connection draining, so a node you place into maintenance mode (Phase 26) finishes in-flight connections rather than dropping them abruptly.
+
+## Phase 24 - Verify the load balancer
+
+- Query each backend directly (bypassing the VIP) and confirm each independently reports healthy on `5500`, `5577`, the client-proxy port, and the `5588` health check.
+- Query the VIP and confirm it resolves and connects, and that traffic actually reaches both backends (not only one).
+- Confirm the load balancer's own status page or equivalent shows both nodes healthy and in rotation.
+
+## Phase 25 - Real API validation
+
+Perform one known-good, real CamDX API request through the VIP (using a client/service you have configured and registered). Record:
+
+- The request result (success/failure, and the response).
+- Which backend handled it, if your load balancer or application logs let you observe this.
+- That the request appears in `messagelog` on the node that handled it.
+- That it appears in Operational Monitoring.
+- That CamDX/peer visibility (central monitoring) shows the activity, if observable from your side.
+
+## Phase 26 - Backend maintenance test
+
+Place the primary into maintenance mode:
+
+```bash
+curl -i "http://localhost:5566/maintenance?targetState=true"
+```
+
+Confirm: the primary's health check (Phase 22) now returns `503`; the load balancer removes it from rotation; a repeat of the Phase 25 real API request still succeeds, now served by the secondary.
+
+Disable maintenance mode:
+
+```bash
+curl -i "http://localhost:5566/maintenance?targetState=false"
+```
+
+Repeat the same test on the secondary (place it into maintenance, confirm `503` and removal, confirm the API request still succeeds via the primary, then disable maintenance).
+
+**Do not promote or demote the PostgreSQL `serverconf` primary during this test.** Maintenance mode only affects which node the load balancer sends traffic to; it has no effect on database replication direction.
+
+## Phase 27 - Service restart and OS reboot recovery
+
+Perform these tests **one node at a time**, so the other node remains available throughout. **Do not perform automatic or manual primary promotion during this phase.**
+
+### Service restart recovery
+
+For **each** node in turn:
+
+1. Remove that node from load-balancer rotation (place it in maintenance mode, Phase 26, or remove it at the load balancer).
+2. Restart the X-Road application services on that node:
+   ```bash
+   sudo systemctl restart xroad-confclient xroad-signer xroad-proxy xroad-proxy-ui-api xroad-monitor xroad-addon-messagelog
+   ```
+3. Verify:
+   - services return healthy: `systemctl is-active xroad-confclient xroad-signer xroad-proxy xroad-proxy-ui-api xroad-monitor xroad-addon-messagelog xroad-opmonitor` all `active`;
+   - `serverconf` remains reachable: `sudo -u postgres pg_isready -p 5433`;
+   - node role is still correct: `cat /etc/xroad/conf.d/node.ini`;
+   - `db.properties` still points `serverconf` at `127.0.0.1:5433` (Phase 7/Phase 10);
+   - on the secondary specifically, `xroad-sync.timer`/`.service` remain healthy (Phase 12);
+   - global configuration is valid: `ls -la /etc/xroad/globalconf`;
+   - local Operational Monitoring is healthy: `systemctl is-active xroad-opmonitor`;
+   - the health endpoint returns `200` once token state is confirmed valid (re-log the token in per Phase 21 if needed).
+4. Return the node to load-balancer rotation.
+5. Repeat a known-good real API request through the VIP (as in Phase 25).
+
+### Full OS reboot recovery
+
+Test the **secondary first, then the primary**.
+
+For **each** node in turn:
+
+1. Remove that node from load-balancer rotation.
+2. Reboot the node's operating system.
+3. After boot, verify:
+   - the dedicated `serverconf` PostgreSQL instance is active;
+   - PostgreSQL streaming replication is healthy (repeat the Phase 9 checks);
+   - **on the secondary only**, `xroad-sync.service`/`.timer` are enabled and the boot-time sync completed successfully:
+     ```bash
+     systemctl is-enabled xroad-sync.service xroad-sync.timer
+     systemctl show xroad-sync.service -p Result -p ExecMainStatus -p ActiveState -p SubState
+     ```
+     expect `Result=success`, `ExecMainStatus=0`, `ActiveState=inactive`, `SubState=dead` (this is the correct resting state for a successful one-shot unit, not a failure);
+   - **on the primary, this check does not apply.** `xroad-sync.service` and `xroad-sync.timer` exist only on the secondary; do not create or enable either unit on the primary, and do not expect them when verifying the primary's reboot;
+   - `node.ini`'s role survived the reboot;
+   - `db.properties` still points `serverconf` at `127.0.0.1:5433`;
+   - the X-Road application services recovered: `systemctl is-active xroad-confclient xroad-signer xroad-proxy xroad-proxy-ui-api xroad-monitor xroad-addon-messagelog xroad-opmonitor`;
+   - global configuration is valid;
+   - local Operational Monitoring is healthy.
+4. **Expected post-reboot token behavior:** because this procedure uses manual secondary token login by default, the software token may be locked after a reboot (on either node). The health endpoint may therefore return `500` until a security officer logs the token in again. This is expected, not a fault. Log the token in (Phase 21's method on the secondary; the Admin UI directly on the primary), then confirm the health endpoint returns `200`.
+5. Return the node to load-balancer rotation.
+6. Perform a known-good real API request through the VIP.
+7. Confirm the request succeeds while the other node remains available throughout.
+
+Only after both the service-restart and OS-reboot recovery tests pass on both nodes may you proceed to Phase 28's acceptance checklist.
+
+## Phase 28 - Acceptance
+
+Before handing this deployment over or declaring it production-ready, confirm every item below, and complete Checkpoint C with CamDX:
+
+- PostgreSQL streaming replication healthy (Phase 9 checks, re-run), and both nodes still confirmed on the same PostgreSQL major version.
+- Secondary `db.properties` confirmed pointed at `127.0.0.1:5433` for `serverconf` (Phase 10).
+- On the secondary, scheduled `rsync` is healthy (`systemctl status xroad-sync.timer` active, last run successful) and enabled to survive a reboot (`systemctl is-enabled xroad-sync.service xroad-sync.timer`); `xroad-sync.service`/`.timer` do not exist on the primary.
+- Node roles correct on both nodes (`node.ini`).
+- Global configuration valid and independently refreshing on both nodes.
+- Secondary administrative restrictions correct (Phase 15, re-verified).
+- Software token active and logged in on both nodes.
+- Health endpoint returns `200` on both nodes.
+- VIP healthy, both backends in rotation, traffic observed reaching both.
+- The Phase 25 real API request succeeds through the VIP.
+- The Phase 26 request succeeds with either node individually removed from service.
+- The Phase 27 service-restart recovery test passed on both nodes.
+- The Phase 27 OS-reboot recovery test passed on both nodes (secondary, then primary), including the expected post-reboot token-login behavior.
+- Operational Monitoring healthy on both nodes (local topology, the standard path this runbook covers; see [Network Requirements](../network-requirements.md) §7 if your deployment instead uses a separate, approved remote/external topology).
+- `messagelog` healthy on both nodes.
+- Backup responsibilities recorded: who backs up `serverconf` (from the primary), who backs up each node's own `messagelog`, and how (see [Deployment Model Selector](../deployment-models.md) §1 for the durable-state categories this covers).
+- CamDX central monitoring visibility confirmed, final registration/onboarding status confirmed, and production go-live authorized (Checkpoint C).
+
+Only after every item above is confirmed, and Checkpoint C is complete, is this HA deployment ready for production traffic.
+
+## 29. Failover and primary promotion
+
+There is no automatic failover. If the primary becomes unavailable, the secondary continues serving already-replicated configuration and can continue processing message traffic that does not require a configuration change, but it does not promote itself. Promoting the secondary to primary (changing its `node.ini`, reversing the PostgreSQL replication direction, and re-pointing the former primary as a new secondary once it returns) is a deliberate operational decision with its own procedure, not covered by this installation guide. If you need to plan for this scenario, treat it as a separate disaster-recovery runbook, raised with CamDX; do not improvise a promotion from the steps above.
+
+## 30. If something goes wrong
+
+See [HA Troubleshooting](../troubleshooting/high-availability.md) for the specific symptoms this procedure can produce, and the [Troubleshooting index](../troubleshooting/README.md) for everything else. Preserve the exact error text, the phase you were on, and the output of the relevant verification command before contacting CamDX.
+
+## 31. References
+
+- [HA Deployment Profile](../high-availability-deployment-profile.md), [Network Requirements](../network-requirements.md) §8, [Deployment Model Selector](../deployment-models.md).
+- [Ubuntu Standalone Installation](./standalone-installation.md), [Initial Configuration](../initial-configuration.md).
+- [RHEL HA Installation](../rhel/high-availability-installation.md) for the equivalent RHEL 9 procedure.
+- [HA Troubleshooting](../troubleshooting/high-availability.md).
+- Upstream X-Road External Load Balancer Installation Guide (`nordic-institute/X-Road`), the architecture and mechanism this procedure is adapted from.
