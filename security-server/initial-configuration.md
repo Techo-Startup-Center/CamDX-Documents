@@ -60,16 +60,17 @@ Open `https://<SECURITY_SERVER_IP_OR_FQDN>:4000` and log in with the system admi
 11. Click **SUBMIT**.
 12. **Verify first-run completion.** The Admin UI now shows its normal navigation tabs (**CLIENTS**, **KEYS AND CERTIFICATES**, **SETTINGS**, and others). Reaching this view confirms the first-time setup wizard completed successfully.
 
-If the Admin UI already completed first-time setup previously (for example, you are returning to an already-initialized Security Server), log in directly and skip to §6.
+If the Admin UI already completed first-time setup previously (for example, you are returning to an already-initialized Security Server), log in directly: this skips only the first-run initialization wizard above. Continue with §5 (Timestamping service configuration) next, then §6 onward; do not skip past §5.
 
 ## 5. Timestamping service configuration
 
 1. In the **Navigation tabs**, select **SETTINGS**.
 2. Select the **SYSTEM PARAMETERS** tab.
 3. In the **Timestamping Services** section, click **ADD**.
-4. Select the appropriate CamDX-provided timestamping service from the list and add it.
+4. In the dialog that opens, select the CamDX-approved timestamping service for this deployment's environment from the list (not merely "the appropriate" one by your own judgment; confirm with CamDX which service is approved for Development vs. Production if you are unsure).
+5. Click **ADD** in the dialog to confirm.
 
-Expected result: the timestamping service now appears listed in the **Timestamping Services** section.
+Expected result: the selected service now appears listed in the **Timestamping Services** table.
 
 ## 6. Signing and authentication keys
 
@@ -82,36 +83,54 @@ Two separate keys are required, both generated on the software token. In the **N
 1. Expand the token's row by clicking the caret next to the token name, then click **ADD KEY**.
 2. In the wizard: optionally define a label for the key (for example `SignKey`), click **NEXT**.
 3. On the next page: select **Usage** = `SIGNING`; select **Client** = the member/subsystem this key signs for; select **Certification Service** = the CamDX intermediate CA; select **CSR Format** = `PEM` (unless the CamDX CA's profile pre-selects and locks a different format, in which case use the pre-selected value). Click **CONTINUE**.
-4. Review the certificate owner's information shown, filling in any empty required field, then click **GENERATE CSR**.
-5. Click **DONE**.
+4. Review the certificate owner's information shown, filling in any empty required field, then click **GENERATE CSR**. This prompts your browser to save/download the generated CSR file to your administrator workstation.
+5. Save the download using a deterministic, descriptive filename rather than your browser's default name, so you (or a colleague) can identify it later without opening it; for example `<member-code>-signing.csr`.
+6. Click **DONE**.
 
-Expected result: a "Request" record appears under the token's row, indicating the signing CSR now exists for this key. Keep (or re-download) the generated CSR file; you submit it in §6.3.
+Expected result: a "Request" record appears under the token's row, indicating the signing CSR now exists for this key, and the saved file `<member-code>-signing.csr` exists on your workstation. The exact save-dialog behavior is a function of your own browser and operating system, not this guide; whatever that behavior is, verify the file actually exists on disk before continuing (for example, check your downloads folder or the location you chose). No private key is ever part of this file or needs to be checked; the token keeps the private key, never exports it.
 
 ### 6.2 Authentication key
 
 1. Expand the token's row (if not already expanded), click **ADD KEY**.
 2. In the wizard: optionally define a label (for example `AuthKey`), click **NEXT**.
 3. On the next page: select **Usage** = `AUTHENTICATION`; select **Certification Service** = the CamDX intermediate CA; select **CSR Format** = `PEM`. Click **CONTINUE**.
-4. Review and fill in the certificate fields shown (including the Security Server's DNS name as the CN/SAN, per §9 below), then click **GENERATE CSR**.
-5. Click **DONE**.
+4. Review the certificate fields shown and fill in the empty ones based on what the CamDX intermediate CA's certificate profile presents for this request. The **CN** field must be the CamDX Security Server's FQDN: for a standalone deployment, your own Security Server's FQDN; for a native HA deployment, `<VIP_FQDN>` (see §9 below). Only populate a **SAN** field if the CA's own profile/UI presents or requires one for this manual authentication CSR; SAN is an ACME-specific domain-validation requirement upstream, not a universal requirement for this manual workflow, so do not add one yourself if the profile does not ask for it. Then click **GENERATE CSR**. This prompts your browser to save/download the generated CSR file to your administrator workstation.
+5. Save the download using a deterministic, descriptive filename; for example `<security-server-code>-authentication.csr`.
+6. Click **DONE**.
 
-Expected result: a "Request" record appears under the token's row for the authentication key, the same way as the signing key.
+Expected result: a "Request" record appears under the token's row for the authentication key, the same way as the signing key, and the saved file `<security-server-code>-authentication.csr` exists on your workstation. Verify the file actually exists on disk before continuing, the same way as §6.1's signing CSR.
 
 ### 6.3 Submitting the CSRs
 
-Send both generated CSR files (signing and authentication) to CamDX through your approved onboarding channel. CamDX issues the corresponding certificates and returns them to you.
+Before submitting, verify both CSR files exist on the administrator workstation: `<member-code>-signing.csr` (§6.1) and `<security-server-code>-authentication.csr` (§6.2). Neither file contains, nor should ever be used to display, any private key: the token generated and keeps the private key internally; only the CSR (a public request) was exported.
+
+Send both files to CamDX through your approved onboarding channel. CamDX issues the corresponding certificates and returns them to you.
 
 ## 7. Certificate import
 
-Once CamDX issues both certificates:
+Once CamDX issues both certificates, import each one using the exact control for its own certificate type; the two types use different literal UI actions.
+
+### 7.1 Importing the signing certificate
 
 1. In the **Navigation tabs**, select **KEYS AND CERTIFICATES**.
-2. Expand the token's row, locate the "Request" record for the certificate you are importing, and click **IMPORT CERT.**.
-3. Locate the certificate file on the local file system and open it.
+2. Expand the token's row by clicking the caret next to the token name.
+3. Locate the "Request" record under the **signing** key (the one you generated in §6.1).
+4. Click **IMPORT CERT.**.
+5. Locate the signing certificate file on the local file system and click **OK**.
 
-Expected result: the "Request" record is replaced with the imported certificate's information. By default, an imported authentication certificate is in the **Saved** (registration) and **Disabled** (validity) states; a signing certificate does not need separate activation.
+Expected result: the "Request" record under the signing key's row is replaced with the imported certificate's information. By default, the signing certificate is imported in the **Registered** state; it does not need separate activation.
 
-**Activate the authentication certificate before it can be used:**
+### 7.2 Importing the authentication certificate
+
+1. In the **Navigation tabs**, select **KEYS AND CERTIFICATES**.
+2. Expand the token's row by clicking the caret next to the token name.
+3. Locate the "Request" record under the **authentication** key (the one you generated in §6.2).
+4. Click **Import certificate**.
+5. Locate the authentication certificate file on the local file system and click **OK**.
+
+Expected result: the "Request" record under the authentication key's row is replaced with the imported certificate's information. By default, the authentication certificate is imported in the **Saved** (registration) and **Disabled** (validity) states; it requires explicit activation before use (§7.3).
+
+### 7.3 Activate the authentication certificate
 
 1. Click the authentication certificate's row to open its **Certificate** dialog.
 2. Click **Activate**.
@@ -120,11 +139,26 @@ Expected result: the certificate's validity state changes from **Disabled**. (Us
 
 ## 8. Authentication certificate registration
 
+**Preflight: verify the prerequisites below in the Admin UI before clicking Register.** Registration depends on the server's own signature over the request and on the certificates involved being usable; confirm, in the **Navigation tabs**:
+
+1. **KEYS AND CERTIFICATES**: the software token row shows **LOG OUT** (meaning logged in), not **LOG IN**.
+2. **KEYS AND CERTIFICATES**: the signing certificate (§7.1) shows registration state **Registered** in the **Status** column.
+3. **KEYS AND CERTIFICATES**: the signing certificate's **OCSP** column reads **Good**. This column is directly checkable here because validity states other than "Disabled" are only displayed in the UI for a certificate that is already in the **Registered** registration state, which the signing certificate already is; **STOP** if it reads anything other than **Good** (for example **Unknown**, **Suspended**, **Expired**, or **Revoked**), and resolve that before continuing, rather than proceeding on an assumption that it will become good later.
+4. **KEYS AND CERTIFICATES**: the authentication certificate (§7.2) is imported (no longer shows as a "Request" record).
+5. **KEYS AND CERTIFICATES**: the authentication certificate's registration state is exactly **Saved** (the Register action's own documented precondition; not **Registration in progress**, not any other state).
+6. **KEYS AND CERTIFICATES**: the authentication certificate is activated, not **Disabled** (§7.3). **This is also your OCSP evidence for the authentication certificate specifically**, and it is not optional: unlike the signing certificate, the authentication certificate's own OCSP/validity state is not yet displayed in the **OCSP** column at this point, because that column only shows a real validity state once a certificate reaches the **Registered** registration state, which the authentication certificate has not yet reached. Upstream X-Road states explicitly that "Certificate can be activated only when OCSP responses are valid," so a successful **Activate** in §7.3 is itself the documented proof that OCSP was good at that time. **STOP** if §7.3's **Activate** action did not succeed (for example, it was rejected, or the certificate still shows **Disabled**); do not register an authentication certificate that never cleared this check, and do not treat the absence of a visible OCSP column value here as permission to skip the requirement.
+
+**STOP** if any of 1-6 is not yet true; resolve it (log the token in, finish §7.1-§7.3, or escalate if OCSP does not clear) before registering. Submitting a registration request while a prerequisite is missing wastes a registration attempt and can leave the certificate in a harder-to-diagnose state.
+
+Once all 6 are confirmed:
+
 1. In the **Navigation tabs**, select **KEYS AND CERTIFICATES**.
-2. Expand the token's row, locate the activated authentication certificate (it must be in **Saved** registration state), and click **Register** at the end of its row.
+2. Expand the token's row, locate the authentication certificate, and click **Register** at the end of its row.
 3. In the dialog that opens, enter the Security Server's public DNS name or external address: for a standalone deployment, this is the Security Server's own address; for an HA deployment, use the HA logical/VIP address instead, per §9 below, never either node's own private address. Then click **ADD**.
 
-Expected result: the message "Certificate registration request successful" is displayed, and the certificate's registration state changes to **Registration in process**. After CamDX (the X-Road governing authority) approves the request, the state changes to **Registered**. If CamDX rejects the request, no automatic notification appears in the Admin UI; CamDX notifies you through your onboarding channel, and the certificate remains in **Registration in process** until you unregister/delete it and submit a new authentication certificate from scratch.
+Expected result: the message "Certificate registration request successful" is displayed, and the certificate's registration state changes to **Registration in process**. After CamDX (the X-Road governing authority) approves the request, the state changes to **Registered**.
+
+**If CamDX rejects the request:** no automatic notification appears in the Admin UI; CamDX notifies you through your onboarding channel, and the certificate remains in **Registration in process** in the Admin UI until you act. Do not assume a new CSR/certificate is always required: follow CamDX's specific rejection/reissuance instruction for that rejection, which will tell you which of the following apply: unregister and/or delete the rejected authentication certificate's registration state as instructed; import the certificate CamDX instructs you to use (which may be the same certificate, reissued, or a newly generated one, depending on the rejection reason); then submit the registration request again (repeat this section). A new CSR is only needed if CamDX specifically tells you reissuance is required for that rejection.
 
 ## 9. HA-specific addressing (read this before §8 if you are configuring an HA pair)
 
@@ -133,17 +167,18 @@ This section applies only to a replicated native HA deployment ([Ubuntu HA](./ub
 Two distinct addresses exist side by side in an HA deployment; do not let them blur together:
 
 - `https://<PRIMARY_FQDN>:4000` is the **administration endpoint**: the Admin UI address you actually open in your browser throughout this document, always the primary's own address. The secondary has its own Admin UI at `https://<SECONDARY_FQDN>:4000`, used read-only, never for performing this document's steps.
-- `<VIP_FQDN>` is the **logical external Security Server address**: the approved HA load-balancer/VIP FQDN recorded in the HA Deployment Profile. Use this value, not `<PRIMARY_FQDN>` and not `<SECONDARY_FQDN>`, wherever this document asks for the Security Server's DNS name/external address for the purpose of PKI or registration: the authentication-certificate CSR's CN/SAN in §6.2, and the address entered in §8's registration dialog. Confirm `<VIP_FQDN>` actually resolves to, and routes to, the load balancer/VIP (which then performs Layer-4 TCP passthrough to whichever backend node is healthy) before submitting the CSR or the registration request.
+- `<VIP_FQDN>` is the **logical external Security Server address**: the approved HA load-balancer/VIP FQDN recorded in the HA Deployment Profile. Use this value, not `<PRIMARY_FQDN>` and not `<SECONDARY_FQDN>`, wherever this document asks for the Security Server's DNS name/external address for the purpose of PKI or registration: the authentication-certificate CSR's CN (and SAN, only if the CA's certificate profile presents or requires one) in §6.2, and the address entered in §8's registration dialog. Confirm `<VIP_FQDN>` actually resolves to, and routes to, the load balancer/VIP (which then performs Layer-4 TCP passthrough to whichever backend node is healthy) before submitting the CSR or the registration request.
 
-For a replicated native HA deployment, perform this entire document (§1-§8, §10-§13) on the **primary node's Admin UI only**, using `<VIP_FQDN>` wherever an external/DNS address is asked for:
+**§9 itself is addressing and role guidance only. It is not a pause point, and it does not shorten which sections of this document you must complete.** The sequence for a replicated native HA deployment is:
 
 1. Complete the HA infrastructure/replication procedure first (the installation guide's Phases 0-17), including the secondary's `serverconf` database connection (Phase 10).
-2. Perform §1-§8 and §10-§13 of this document on the **primary node's Admin UI only** (`https://<PRIMARY_FQDN>:4000`).
-3. Do not initialize the secondary as another Security Server: do not open its first-time setup sequence, import the configuration anchor there, create a token, generate keys, or attempt registration there.
-4. After §8 completes on the primary, perform the installation guide's one-time bootstrap synchronization (Phase 19) once, manually; this carries the initial global configuration and signer/token state to the secondary. `serverconf` itself is already live on the secondary continuously, via PostgreSQL streaming replication, independent of this sync.
-5. Verify the secondary reflects the same logical Security Server identity, not a separate one, and that its global configuration is valid and independently refreshing (Phase 21).
-6. Log in/unlock the software token on the secondary using the approved mechanism (manual PIN entry by a retained security-officer role, via the secondary's own Admin UI **Keys and Certificates, Token, Login**); it does not unlock automatically when the token file is replicated.
-7. Use the secondary's Admin UI as read-only, except for the token/PIN operations the retained `xroad-security-officer` role permits.
+2. Open the **primary node's Admin UI only** (`https://<PRIMARY_FQDN>:4000`).
+3. Execute the applicable Initial Configuration workflow **completely** on the primary: §1 through §8, then §10 through §13, in order, using `<VIP_FQDN>` (never `<PRIMARY_FQDN>` or `<SECONDARY_FQDN>`) wherever an external/DNS address is asked for (the authentication-certificate CSR's CN in §6.2, and the registration address in §8). Consult this §9 as needed along the way for the addressing rule above and for the role/initialization boundary in item 4 below; do not stop at §8, and do not stop at the end of this §9 itself.
+4. Do not initialize the secondary as another Security Server at any point in steps 1-3: do not open its first-time setup sequence, import the configuration anchor there, create a token, generate keys, or attempt registration there.
+5. **Only after §13 is complete on the primary** (subsystem registration, final registration/status checks, the CamDX-specific `local.ini` setting, and Operational Monitoring are all done), leave this document and return to the installation guide to perform its one-time bootstrap synchronization (Phase 19) once, manually; this carries the initial global configuration and signer/token state to the secondary. `serverconf` itself is already live on the secondary continuously, via PostgreSQL streaming replication, independent of this sync.
+6. Verify the secondary reflects the same logical Security Server identity, not a separate one, and that its global configuration is valid and independently refreshing (Phase 21).
+7. Log in/unlock the software token on the secondary using the approved mechanism (manual PIN entry by a retained security-officer role, via the secondary's own Admin UI **Keys and Certificates, Token, Login**); it does not unlock automatically when the token file is replicated.
+8. Use the secondary's Admin UI as read-only, except for the token/PIN operations the retained `xroad-security-officer` role permits.
 
 See the installation guide's own Phase 10 and Phase 18-21 for the exact commands and verification steps.
 
@@ -195,13 +230,32 @@ sudo chown xroad:xroad /etc/xroad/conf.d/local.ini
 sudo chmod 640 /etc/xroad/conf.d/local.ini
 ```
 
-**If it already exists**, back it up, inspect it, and edit it directly rather than overwriting it:
+**If it already exists**, back it up, inspect it, and edit it directly rather than overwriting it. First, check whether a backup from an earlier attempt already exists at the target backup path; do not let `cp` silently overwrite it:
 
 ```bash
-sudo cp -a /etc/xroad/conf.d/local.ini /etc/xroad/conf.d/local.ini.pre-standalone-settings
+sudo test -e /etc/xroad/conf.d/local.ini.pre-initial-config && echo "backup already exists" || echo "no existing backup"
+```
+
+**If no existing backup** (`no existing backup` above): create it normally.
+
+```bash
+sudo cp -a /etc/xroad/conf.d/local.ini /etc/xroad/conf.d/local.ini.pre-initial-config
+```
+
+**If a backup already exists** (`backup already exists` above): **STOP**. Do not overwrite it; it may be the only record of this file's state from an earlier attempt. Preserve it, and create this attempt's backup under a clearly distinct, unique name instead, for example by appending the current date:
+
+```bash
+sudo cp -a /etc/xroad/conf.d/local.ini "/etc/xroad/conf.d/local.ini.pre-initial-config.$(date +%Y%m%d%H%M%S)"
+```
+
+Either way, inspect the current file and edit it directly:
+
+```bash
 sudo cat /etc/xroad/conf.d/local.ini
 sudoedit /etc/xroad/conf.d/local.ini
 ```
+
+This backup file is separate from, and must not be confused with, either HA runbook's own `local.ini.pre-ha` backup (created in a different phase, for a different purpose); the two never collide by name, and this overwrite check does not change that.
 
 Ensure the file contains exactly one `[message-log]` section with `message-body-logging=false` inside it (add the line to the existing section if `[message-log]` is already present; do not create a second `[message-log]` section). Verify there is no duplicate:
 

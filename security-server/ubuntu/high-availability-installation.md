@@ -629,12 +629,16 @@ ssh-keyscan -t ed25519 <PRIMARY_IP> > /tmp/primary-hostkey-admin.pub
 ssh-keygen -lf /tmp/primary-hostkey-admin.pub -E sha256
 ```
 
-Compare the printed fingerprint against `<PRIMARY_SSH_FINGERPRINT>` recorded in your HA Deployment Profile §2 (the same value Phase 5 already verified). **STOP** on any mismatch. Once it matches, add it to a dedicated file for this administrative work:
+Compare the printed fingerprint against `<PRIMARY_SSH_FINGERPRINT>` recorded in your HA Deployment Profile §2 (the same value Phase 5 already verified). **STOP** on any mismatch. Once it matches, initialize a fresh, empty, dedicated file for this administrative work (do not rely on a prior attempt's file; truncate it explicitly rather than assuming it starts empty), then add the verified key:
 
 ```bash
+# On the secondary, as <SECONDARY_OS_ADMIN_USER>:
+: > /tmp/admin-known-hosts
 cat /tmp/primary-hostkey-admin.pub >> /tmp/admin-known-hosts
 rm -f /tmp/primary-hostkey-admin.pub
 ```
+
+This ensures the file contains only the fingerprint you just verified, never silently reused trust data left over from an earlier, possibly interrupted attempt.
 
 **Step 1a: stage the public key locally first.** Do not assume `<SECONDARY_OS_ADMIN_USER>` can read directly into `/home/xroad/.ssh` to run the transfer from there: that directory stays mode `0700`, owned `xroad:xroad`, exactly as Phase 11 created it, and this step never relaxes that. Instead, use `sudo` once to copy only the public key out to an exactly-named staging file that `<SECONDARY_OS_ADMIN_USER>` can read on its own:
 
@@ -879,23 +883,41 @@ Expected result: the primary prints `type=master`; the secondary prints `type=sl
 
 ## Phase 15 - Restrict secondary administration
 
-On the **secondary**, for every existing Admin UI/API administrator account (including the one created during Phase 2's installation):
+**First, discover who currently has writable Admin UI/API access on the secondary, before changing anything.** On the **secondary**:
 
 ```bash
-sudo deluser <admin-user> xroad-registration-officer
-sudo deluser <admin-user> xroad-service-administrator
-sudo deluser <admin-user> xroad-system-administrator
+getent group xroad-registration-officer xroad-service-administrator xroad-system-administrator
 ```
+
+Expected normal case: each line lists only `<SECONDARY_ADMIN_USER>` (recorded in your HA Deployment Profile §2), the X-Road Admin UI account created during Phase 2's installation. **STOP** if any other account name appears; it did not come from this guide's own Phase 2, so confirm with your own organization whether that account is expected before changing its access, since an unexpected account may indicate a configuration you did not intend. Do not remove anything until you have confirmed the complete set of accounts you intend to restrict.
+
+**Once the set of accounts to restrict is confirmed** (normally just `<SECONDARY_ADMIN_USER>`; otherwise that account plus every other one you confirmed with your organization), remove each of them from the three writable role groups:
+
+```bash
+sudo deluser <SECONDARY_ADMIN_USER> xroad-registration-officer
+sudo deluser <SECONDARY_ADMIN_USER> xroad-service-administrator
+sudo deluser <SECONDARY_ADMIN_USER> xroad-system-administrator
+```
+
+Repeat this same three-command block, substituting the account's name for `<SECONDARY_ADMIN_USER>`, for each additional confirmed account.
 
 Retain `xroad-securityserver-observer` and `xroad-security-officer`; do not remove these, as they are needed for read-only diagnostics and local token/PIN operations respectively.
 
-Verify:
+**Verify each restricted account individually:**
 
 ```bash
-id <admin-user>
+id <SECONDARY_ADMIN_USER>
 ```
 
-Expect the group list to include `xroad-securityserver-observer` and `xroad-security-officer`, and **not** `xroad-registration-officer`, `xroad-service-administrator`, or `xroad-system-administrator`. If any of the three removed groups still appears, repeat the `deluser` command for it and verify again.
+Expect the group list to include `xroad-securityserver-observer` and `xroad-security-officer`, and **not** `xroad-registration-officer`, `xroad-service-administrator`, or `xroad-system-administrator`. Repeat this `id` check for every other account you restricted above.
+
+**Finally, re-run the discovery command to confirm the restriction actually took effect:**
+
+```bash
+getent group xroad-registration-officer xroad-service-administrator xroad-system-administrator
+```
+
+Expected result now: none of the accounts you just restricted appears in any of the three lines (the three groups may now be empty, or may list only accounts you deliberately did not restrict, if any). Do not expect `<SECONDARY_ADMIN_USER>` to still appear here; that would mean the removal did not take effect. If any restricted account still appears in a given group, repeat the `deluser` command for that specific group and verify again.
 
 ## Phase 16 - Configure load-balancer behavior and the health check
 
@@ -1060,7 +1082,7 @@ Your own load-balancer administrator implements this using whichever product you
 - Layer 4 / TCP load balancing with TLS passthrough. The load balancer must not terminate TLS; the Security Server does that. This does not eliminate the possibility of some in-flight message loss on a node failure; it is a load-balancing architecture, not a zero-loss fault-tolerance guarantee.
 - Health check: `HTTP GET` to port `5588` on each backend, expecting `200`. A backend must be removed from rotation on any other response.
 - Forward TCP `5500` and `5577` to both nodes, per [Network Requirements](../network-requirements.md) §8.
-- Forward your deployment's client-proxy port (`<CLIENT_PROXY_PORT>`) to both nodes, if consumer information systems reach this Security Server through the VIP.
+- Forward your deployment's client-proxy port (`<CLIENT_PROXY_PORT>`) to both nodes, **only if** your HA Deployment Profile §2 records "Client-proxy traffic forwarded through VIP" as `YES`. If it records `NO`, skip this; consumers in that case reach the client-proxy port some other way this profile field does not need to describe.
 - Do not load-balance TCP `4000` (Admin UI) as if both nodes were equally writable; the secondary's UI is read-only. Point administrators at the primary directly, or make the VIP's `4000` forwarding explicit about which node it reaches, per your own administration network's needs.
 - Support connection draining, so a node you place into maintenance mode (Phase 26) finishes in-flight connections rather than dropping them abruptly.
 
@@ -1068,6 +1090,7 @@ Your own load-balancer administrator implements this using whichever product you
 
 ```text
 # /etc/haproxy/haproxy.cfg (excerpt - educational reference only)
+# Always required: X-Road peer interfaces (message transport on 5500, OCSP response relay on 5577).
 
 frontend ft_xroad_5500
     bind *:5500
@@ -1092,6 +1115,15 @@ backend bk_xroad_5577
     http-check expect status 200
     server primary   <PRIMARY_IP>:5577   check port 5588
     server secondary <SECONDARY_IP>:5577 check port 5588
+```
+
+`option httpchk GET /` plus `http-check expect status 200` makes HAProxy's health probe implement the documented requirement exactly: HAProxy opens a separate check connection to `check port 5588` and sends a real `HTTP GET /`, keeping a backend in rotation only on a literal `200` response; a `500` (failed check) or `503` (maintenance mode) removes it, the same as the health endpoint's own documented contract. This check connection is independent of the backend's own `mode tcp` data-plane connections on `5500`/`5577`, which still never get HTTP semantics applied to them and are passed through unmodified; a bare TCP connect (`option tcp-check`) is not sufficient here, since it would leave an unhealthy backend (`500`) or a deliberately maintenance-mode backend (`503`) in rotation as long as the TCP port itself still accepts connections. No `bind ... ssl` or `mode http` directive appears anywhere in this excerpt; HAProxy only passes the data-plane TCP stream through unmodified, consistent with the Layer-4/TLS-passthrough requirement above.
+
+**Include the block below only if your HA Deployment Profile §2 records "Client-proxy traffic forwarded through VIP" as `YES`.** If it records `NO`, do not add this block to your HAProxy configuration at all: the client-proxy port is not forwarded through this load balancer in your deployment, and the two `frontend`/`backend` pairs above are the complete reference configuration for you.
+
+```text
+# /etc/haproxy/haproxy.cfg (excerpt - educational reference only)
+# Only if HA Deployment Profile §2 "Client-proxy traffic forwarded through VIP" = YES.
 
 frontend ft_xroad_clientproxy
     bind *:<CLIENT_PROXY_PORT>
@@ -1106,7 +1138,7 @@ backend bk_xroad_clientproxy
     server secondary <SECONDARY_IP>:<CLIENT_PROXY_PORT> check port 5588
 ```
 
-`option httpchk GET /` plus `http-check expect status 200` makes HAProxy's health probe implement the documented requirement exactly: HAProxy opens a separate check connection to `check port 5588` and sends a real `HTTP GET /`, keeping a backend in rotation only on a literal `200` response; a `500` (failed check) or `503` (maintenance mode) removes it, the same as the health endpoint's own documented contract. This check connection is independent of the backend's own `mode tcp` data-plane connections on `5500`/`5577`/the client-proxy port, which still never get HTTP semantics applied to them and are passed through unmodified; a bare TCP connect (`option tcp-check`) is not sufficient here, since it would leave an unhealthy backend (`500`) or a deliberately maintenance-mode backend (`503`) in rotation as long as the TCP port itself still accepts connections. No `bind ... ssl` or `mode http` directive appears anywhere in this excerpt; HAProxy only passes the data-plane TCP stream through unmodified, consistent with the Layer-4/TLS-passthrough requirement above.
+The same health-check semantics described above apply to this block: `check port 5588` keeps a backend in rotation only on a literal `200`, and the client-proxy port's own `mode tcp` data-plane connections are passed through unmodified here as well, never terminated or inspected by HAProxy.
 
 ## Phase 24 - Verify the load balancer
 
@@ -1123,14 +1155,14 @@ Expected result: both return `HTTP/1.1 200 OK`. A `curl` from an arbitrary admin
 
 **Second, confirm the load balancer's own operational/status view**, on the load-balancer host itself (not the Security Server nodes): the method you recorded in your HA Deployment Profile §6 (for example, an HAProxy stats page, a vendor API/CLI command, or an equivalent status interface). Expected result: both backends shown healthy and in rotation.
 
-**Third, validate the VIP on its real forwarded data-plane port(s)**, from a source permitted by the backend firewall/source-CIDR policy for `5500`/`5577` (per your HA Deployment Profile §5's backend data-plane CIDRs). Prefer the load-balancer host or an equivalent test context your network actually permits; do not use an arbitrary administration workstation that the backend firewall rules were never scoped to allow:
+**Third, validate the VIP on its real forwarded data-plane port(s)**, from a source permitted by the backend firewall/source-CIDR policy for `5500`/`5577` (per your HA Deployment Profile §5's backend data-plane CIDRs). Use `<VIP_FQDN>` (the mandatory logical external address, HA Deployment Profile §2), not `<VIP_IP>` (which is optional and recorded for infrastructure documentation only): testing the FQDN also proves DNS resolution of the actual registered HA logical address, not merely IP-level connectivity. Prefer the load-balancer host or an equivalent test context your network actually permits; do not use an arbitrary administration workstation that the backend firewall rules were never scoped to allow:
 
 ```bash
-nc -vz <VIP_IP> 5500
-nc -vz <VIP_IP> 5577
+nc -vz <VIP_FQDN> 5500
+nc -vz <VIP_FQDN> 5577
 ```
 
-Use the equivalent `nc -vz <VIP_IP> <CLIENT_PROXY_PORT>` for your deployment's client-proxy port, from an authorized consumer-network test host, if configured. Expected result: both report `succeeded` or `open`.
+**If your HA Deployment Profile §2 records "Client-proxy traffic forwarded through VIP" as `YES`**, also run the equivalent `nc -vz <VIP_FQDN> <CLIENT_PROXY_PORT>` for your deployment's client-proxy port, from an authorized consumer-network test host. Expected result: `succeeded` or `open`. If that field records `NO`, skip this check; the client-proxy port is not forwarded through the VIP in your deployment.
 
 Direct per-backend `5500`/`5577` checks, if you also want them, are subject to the same source restriction (the backend data-plane CIDRs, not an arbitrary workstation):
 
@@ -1145,33 +1177,58 @@ nc -vz <SECONDARY_IP> 5577
 
 ## Phase 25 - Real API validation
 
-Perform the known-good API request recorded in your HA Deployment Profile §6 (test subsystem, service/API, test client, and expected success result), through the VIP. Record:
+**Where to run this:** the "Test client/source" recorded in your HA Deployment Profile §6, through the VIP (`<VIP_FQDN>`), not directly against either backend.
+
+**Which profile field contains the exact procedure:** HA Deployment Profile §6, the "Exact approved test command / procedure / script" row. That field, not this runbook, is the source of truth for the actual transaction: your member's real test may be a `curl` command, an application-level test script, a manual action in your own client application, or another approved procedure. Do not assume this runbook requires a generic `curl` example; it does not, because the correct command depends on your own registered client/service.
+
+**How to execute it:** run the exact command/procedure/script recorded in that profile field, from the recorded test client/source, targeting `<VIP_FQDN>` and the known-good test subsystem/service recorded in the same §6. If that field records that a secret or token is required, retrieve it from your organization's approved secret storage as the field directs; never read it from the profile itself.
+
+**Expected result:** the exact response/result recorded in HA Deployment Profile §6's "Expected success result" field. Compare the actual result against that defined expectation; do not accept a subjective "looks like it worked" in its place.
+
+**Evidence to record**, capturing the correlation value per the method recorded in HA Deployment Profile §6's "How you capture the correlation value" field, in the field (`QUERYID` or `XREQUESTID`) recorded as the "Standard correlation field":
 
 - The request result (success/failure), compared against the expected result recorded in the profile.
 - Which backend handled it, if your load balancer or application logs let you observe this.
-- That the request appears in `messagelog` on the node that handled it.
-- That it appears in Operational Monitoring.
+- The request's own correlation identifier, captured per the profile's recorded capture method. This confirms the mechanism works; the per-node acceptance evidence itself is captured separately, from the forced-backend transactions in Phase 26.
 - That CamDX/peer visibility (central monitoring) shows the activity, if observable from your side.
 
-**STOP** if your HA Deployment Profile §6 does not yet record a known-good test subsystem/service/API and its expected result: define and confirm one now, with a real registered client and service, before performing this step. Do not reach Phase 28's acceptance checklist having never defined what a successful test transaction looks like for your deployment.
+**STOP condition:** if your HA Deployment Profile §6 does not yet record the exact test command/procedure, its expected result, or its evidence/correlation method, define and confirm all three now, with a real registered client and service, before performing this step. Do not reach Phase 28's acceptance checklist having never defined what a successful test transaction looks like, or how to execute it, for your deployment.
+
+**Next step:** Phase 26.
 
 ## Phase 26 - Backend maintenance test
 
-Place the primary into maintenance mode:
+This phase both tests X-Road's own maintenance mechanism and produces the two backend-specific transactions Phase 28 later verifies per node in `messagelog`/DIAGNOSTICS, Traffic: while the primary is in maintenance, the request the secondary serves becomes the **SECONDARY acceptance transaction**; while the secondary is in maintenance, the request the primary serves becomes the **PRIMARY acceptance transaction**. This is what lets Phase 28 prove each node specifically, rather than guessing which backend handled a single VIP request from load-balancer logs.
+
+**On the primary**, place it into maintenance mode:
 
 ```bash
 curl -i "http://localhost:5566/maintenance?targetState=true"
 ```
 
-Confirm: the primary's health check (Phase 22) now returns `503`; the load balancer removes it from rotation; a repeat of the Phase 25 real API request still succeeds, now served by the secondary.
+Confirm: the primary's health check (Phase 22) now returns `503`; the load balancer removes it from rotation. With the primary unavailable, the secondary must serve the next request; execute the exact Phase 25 test procedure (from HA Deployment Profile §6) now, confirm it succeeds, and capture its correlation identifier (per the profile's "How you capture the correlation value" field) as the **SECONDARY acceptance transaction**. **Only after** this transaction has succeeded and its identifier is captured, disable maintenance mode on the primary.
 
-Disable maintenance mode:
+**On the primary**, disable maintenance mode:
 
 ```bash
 curl -i "http://localhost:5566/maintenance?targetState=false"
 ```
 
-Repeat the same test on the secondary (place it into maintenance, confirm `503` and removal, confirm the API request still succeeds via the primary, then disable maintenance).
+Confirm: the primary's health check returns `200` again once its normal health/token state is restored; the load balancer returns it to rotation.
+
+**Then, on the secondary**, run the equivalent sequence explicitly (do not assume the primary's steps above transfer without restating them):
+
+```bash
+curl -i "http://localhost:5566/maintenance?targetState=true"
+```
+
+Confirm: the secondary's health check (Phase 22) now returns `503`; the load balancer removes it from rotation. With the secondary unavailable, the primary must serve the next request; execute the exact Phase 25 test procedure now, confirm it succeeds, and capture its correlation identifier as the **PRIMARY acceptance transaction**. **Only after** this transaction has succeeded and its identifier is captured, disable maintenance mode on the secondary.
+
+```bash
+curl -i "http://localhost:5566/maintenance?targetState=false"
+```
+
+Confirm: the secondary's health check returns `200` again once its normal health/token state is restored; the load balancer returns it to rotation.
 
 **Do not promote or demote the PostgreSQL `serverconf` primary during this test.** Maintenance mode only affects which node the load balancer sends traffic to; it has no effect on database replication direction.
 
@@ -1179,16 +1236,19 @@ Repeat the same test on the secondary (place it into maintenance, confirm `503` 
 
 Perform these tests **one node at a time**, so the other node remains available throughout. **Do not perform automatic or manual primary promotion during this phase.**
 
+**Do not use X-Road's own maintenance mode (Phase 26) to keep a node out of rotation for this phase.** Maintenance mode resets automatically on the next `xroad-proxy` restart; this phase deliberately restarts `xroad-proxy` (service restart recovery) and reboots the whole OS (full reboot recovery), either of which would silently clear maintenance mode before your post-restart/post-reboot verification is complete, no longer guaranteeing the node is actually out of rotation while you test it. Instead, use the **persistent, load-balancer-side** drain method recorded in your HA Deployment Profile §6: "Backend disable/drain method" (to remove a node) and "Backend re-enable/return-to-rotation method" (to return it). **STOP** if either field is not yet defined in your profile; define and confirm both with your load-balancer administrator before starting this phase. Maintenance mode remains the correct mechanism for Phase 26, where the maintenance mechanism itself is what is being tested; it is not used in this phase.
+
 ### Service restart recovery
 
 For **each** node in turn:
 
-1. Remove that node from load-balancer rotation (place it in maintenance mode, Phase 26, or remove it at the load balancer).
-2. Restart the X-Road application services on that node:
+1. Execute your HA Deployment Profile §6's recorded backend disable/drain method against that node.
+2. Confirm from the load-balancer's own operational/status interface (HA Deployment Profile §6) that the backend is actually out of rotation. **STOP** if it is not; do not proceed to restart services on a node the load balancer still considers in rotation.
+3. Restart the X-Road application services on that node:
    ```bash
    sudo systemctl restart xroad-confclient xroad-signer xroad-proxy xroad-proxy-ui-api xroad-monitor xroad-addon-messagelog
    ```
-3. Verify:
+4. Verify:
    - services return healthy: `systemctl is-active xroad-confclient xroad-signer xroad-proxy xroad-proxy-ui-api xroad-monitor xroad-addon-messagelog xroad-opmonitor` all `active`;
    - `serverconf` remains reachable: `sudo -u postgres pg_isready -p 5433`;
    - node role is still correct: `cat /etc/xroad/conf.d/node.ini`;
@@ -1197,8 +1257,9 @@ For **each** node in turn:
    - global configuration is valid: `ls -la /etc/xroad/globalconf`;
    - local Operational Monitoring is healthy: `systemctl is-active xroad-opmonitor`;
    - the health endpoint returns `200` once token state is confirmed valid (re-log the token in per Phase 21 if needed).
-4. Return the node to load-balancer rotation.
-5. Repeat a known-good real API request through the VIP (as in Phase 25).
+5. Only after all checks in step 4 pass, execute your HA Deployment Profile §6's recorded backend re-enable/return-to-rotation method against that node.
+6. Confirm from the load-balancer's own operational/status interface that the backend is healthy and in rotation again.
+7. Repeat a known-good real API request through the VIP (as in Phase 25).
 
 ### Full OS reboot recovery
 
@@ -1206,12 +1267,28 @@ Test the **secondary first, then the primary**.
 
 For **each** node in turn:
 
-1. Remove that node from load-balancer rotation.
+1. Execute your HA Deployment Profile §6's recorded backend disable/drain method against that node, and confirm from the load-balancer's own operational/status interface that it is actually out of rotation. **STOP** if it is not.
 2. Reboot the node's operating system:
    ```bash
    sudo reboot
    ```
-   The SSH session disconnects immediately; this is expected. Wait for the host to become reachable again (for example, retry `ping <node's IP>` or SSH every 30 seconds), then reconnect using the same administrator account you have used throughout this guide. Once reconnected, run the verification commands in step 3 below.
+   The SSH session disconnects immediately; this is expected.
+
+   Reconnect from the same secure admin workstation and directory you used in Phase 5 (where `ha-ca/ha-known-hosts` was created and still exists), using strict host-key checking against that same retained file, and the OS deployment administrator account for the node you just rebooted:
+
+   For the **secondary** pass:
+   ```bash
+   cd ha-ca
+   ssh -o UserKnownHostsFile=./ha-known-hosts -o StrictHostKeyChecking=yes <SECONDARY_OS_ADMIN_USER>@<SECONDARY_IP>
+   ```
+
+   For the **primary** pass:
+   ```bash
+   cd ha-ca
+   ssh -o UserKnownHostsFile=./ha-known-hosts -o StrictHostKeyChecking=yes <PRIMARY_OS_ADMIN_USER>@<PRIMARY_IP>
+   ```
+
+   The node will not accept SSH connections for some period while it boots; retry the `ssh` command above every 30 seconds or so until it connects. ICMP reachability (`ping <SECONDARY_IP>`/`ping <PRIMARY_IP>`) is not a prerequisite for SSH and is not required before retrying; you may check it as optional supplementary information, but a blocked ping is not a STOP condition and must not be used to decide the node is unreachable. The authoritative recovery signal is the SSH connection itself succeeding on TCP `22`, with the host key matching `./ha-known-hosts` exactly as it already does (do not expect a prompt here: `StrictHostKeyChecking=yes` against the file you already populated in Phase 5 means this either connects silently or fails closed, never prompts). **If you are reconnecting from a different workstation or directory** where `ha-ca/ha-known-hosts` does not exist, do not fall back to an unverified connection: repeat the independent host-key fingerprint verification from Phase 5 for this node, add the verified key to a dedicated file on that workstation, and use that file with the same `-o UserKnownHostsFile=...` /`-o StrictHostKeyChecking=yes` options instead. Once reconnected, run the verification commands in step 3 below.
 3. After boot, verify:
    - the dedicated `serverconf` PostgreSQL instance is active;
    - PostgreSQL streaming replication is healthy (repeat the Phase 9 checks);
@@ -1228,9 +1305,10 @@ For **each** node in turn:
    - global configuration is valid;
    - local Operational Monitoring is healthy.
 4. **Expected post-reboot token behavior:** because this procedure uses manual secondary token login by default, the software token may be locked after a reboot (on either node). The health endpoint may therefore return `500` until a security officer logs the token in again. This is expected, not a fault. Log the token in (Phase 21's method on the secondary; the Admin UI directly on the primary), then confirm the health endpoint returns `200`.
-5. Return the node to load-balancer rotation.
-6. Perform a known-good real API request through the VIP.
-7. Confirm the request succeeds while the other node remains available throughout.
+5. Only after all checks in steps 3-4 pass, execute your HA Deployment Profile §6's recorded backend re-enable/return-to-rotation method against that node.
+6. Confirm from the load-balancer's own operational/status interface that the backend is healthy and in rotation again.
+7. Perform a known-good real API request through the VIP.
+8. Confirm the request succeeds while the other node remains available throughout.
 
 Only after both the service-restart and OS-reboot recovery tests pass on both nodes may you proceed to Phase 28's acceptance checklist.
 
@@ -1240,7 +1318,7 @@ Before handing this deployment over or declaring it production-ready, confirm ev
 
 - PostgreSQL streaming replication healthy (Phase 9 checks, re-run), and both nodes still confirmed on the same PostgreSQL major version.
 - Secondary `db.properties` confirmed pointed at `127.0.0.1:5433` for `serverconf` (Phase 10).
-- On the secondary, scheduled `rsync` is healthy (`systemctl status xroad-sync.timer` active, last run successful) and enabled to survive a reboot (`systemctl is-enabled xroad-sync.service xroad-sync.timer`); `xroad-sync.service`/`.timer` do not exist on the primary.
+- On the secondary, scheduled `rsync` is healthy and enabled to survive a reboot: `systemctl is-enabled xroad-sync.service xroad-sync.timer` reports `enabled` for both; `systemctl list-timers xroad-sync.timer` shows it active; `systemctl show xroad-sync.service -p Result -p ExecMainStatus -p ActiveState -p SubState` reports `Result=success`, `ExecMainStatus=0`, `ActiveState=inactive`, `SubState=dead` for the last completed run (this resting state is a successful oneshot unit, not a failure; do not rely on the shell exit status of `systemctl status` alone, per Phase 12). `xroad-sync.service`/`.timer` do not exist on the primary.
 - Node roles correct on both nodes (`node.ini`).
 - Global configuration valid and independently refreshing on both nodes.
 - Secondary administrative restrictions correct (Phase 15, re-verified).
@@ -1251,8 +1329,24 @@ Before handing this deployment over or declaring it production-ready, confirm ev
 - The Phase 26 request succeeds with either node individually removed from service.
 - The Phase 27 service-restart recovery test passed on both nodes.
 - The Phase 27 OS-reboot recovery test passed on both nodes (secondary, then primary), including the expected post-reboot token-login behavior.
-- `messagelog` evidence on both nodes: `systemctl is-active xroad-addon-messagelog` reports `active`; no relevant recent error in `journalctl -u xroad-addon-messagelog --since "-1 hour"`; the Phase 25 real API request's message is present in the Admin UI's **Message Log** search for the node that handled it, keyed by that request's own timestamp/client/service.
-- Operational Monitoring evidence on both nodes (local topology, the standard path this runbook covers; see [Network Requirements](../network-requirements.md) §7 if your deployment instead uses a separate, approved remote/external topology): `systemctl is-active xroad-opmonitor` reports `active`; no relevant recent error in `journalctl -u xroad-opmonitor --since "-1 hour"`; the Phase 25 real API request appears as a monitoring record in the Admin UI's Operational Monitoring view (or the equivalent CamDX-provided monitoring interface for your environment).
+- **`messagelog` evidence, per node, using each node's own Phase 26 forced-backend transaction** (not a single Phase 25 transaction guessed from load-balancer logs): on each node, `systemctl is-active xroad-addon-messagelog` reports `active`; no relevant recent error in `journalctl -u xroad-addon-messagelog --since "-1 hour"`; and that node's own forced-backend transaction (the **PRIMARY acceptance transaction** on the primary; the **SECONDARY acceptance transaction** on the secondary) is actually present in the local `messagelog` database. There is no Admin UI message-log search; verify it with a read-only, non-secret database query instead. Use the branch matching your HA Deployment Profile §6's "Standard correlation field"; the two fields are not interchangeable, so run only the one that field actually names:
+
+  **If the profile says `QUERYID`:**
+  ```bash
+  sudo -u postgres psql -p 5432 -Atc \
+    "select id, time, queryid, memberclass, membercode, subsystemcode, response from logrecord where queryid = '<the correlation value captured for this node's transaction>' order by time desc;" \
+    messagelog
+  ```
+
+  **If the profile says `XREQUESTID`:**
+  ```bash
+  sudo -u postgres psql -p 5432 -Atc \
+    "select id, time, xrequestid, memberclass, membercode, subsystemcode, response from logrecord where xrequestid = '<the correlation value captured for this node's transaction>' order by time desc;" \
+    messagelog
+  ```
+
+  Expected result, on each node: at least one row, with the queried column matching that node's own captured correlation value (the PRIMARY transaction's value on the primary, the SECONDARY transaction's value on the secondary, never the other node's value), and `memberclass`/`membercode`/`subsystemcode` matching the known-good test subsystem recorded in HA Deployment Profile §6. Both query branches select only non-secret identifying metadata; neither ever selects `message`, `signature`, or any other payload/cryptographic column, so either is safe to run and to include in acceptance evidence. `messagelog` is node-local, not replicated between the primary and secondary; this is exactly why each node needs its own forced-backend transaction from Phase 26 rather than one shared transaction.
+- **Operational Monitoring evidence, per node, as supporting evidence alongside (not a replacement for) the `messagelog` evidence above** (local topology, the standard path this runbook covers; see [Network Requirements](../network-requirements.md) §7 if your deployment instead uses a separate, approved remote/external topology): on each node, `systemctl is-active xroad-opmonitor` reports `active`; no relevant recent error in `journalctl -u xroad-opmonitor --since "-1 hour"`. Then, on that node, open the Admin UI's **DIAGNOSTICS, Traffic** view (the verified X-Road 7.8.2 traffic-visualization screen; this requires `xroad-addon-opmonitoring`, already installed in Phase 2). **Traffic displays aggregate request counts grouped into time intervals, filtered by Period, Party, Exchange role, and Status; it has no `QUERYID`/`XREQUESTID` filter and cannot uniquely identify one request.** Set **Period** to a deliberately narrow window around that node's own Phase 26 forced-backend transaction; set **Party** to the known-good test subsystem recorded in HA Deployment Profile §6; set **Exchange role** to **Producer** or **Consumer** depending on which side this Security Server played for that test; set **Status** to **Success**. Expected result (PASS), on each node: the Traffic view shows successful request activity in that narrow interval, consistent with that node's forced-backend transaction. **This confirms aggregate traffic activity in the test window; it does not uniquely identify the transaction.** Exact transaction identity and per-node backend attribution come from that node's `messagelog` result above, not from this Traffic view. If your deployment uses remote/external Operational Monitoring instead of local: use the approved CamDX-provided monitoring interface for that topology, and record genuine per-node monitoring evidence from it only if that interface provides an explicit Security Server/node filter or equivalent dimension letting you isolate activity to this specific node. If it does not provide such a filter, record its result only as aggregate ingestion/activity evidence for the test window, not as per-node proof; per-node backend attribution still comes from the forced load-balancer state in Phase 26 plus that node's own `messagelog` result, never from a node filter the deployed interface does not actually have.
 - Backup responsibilities recorded: who backs up `serverconf` (from the primary), who backs up each node's own `messagelog`, and how (see [Deployment Model Selector](../deployment-models.md) §1 for the durable-state categories this covers).
 - CamDX central monitoring visibility confirmed, final registration/onboarding status confirmed, and production go-live authorized (Checkpoint C).
 
@@ -1264,8 +1358,8 @@ After Phase 28's acceptance checklist is complete and Checkpoint C is confirmed,
 
 | Item | Disposition |
 |---|---|
-| `/tmp` certificate staging files on the primary (Phase 5) | **DELETE** if not already removed in Phase 5; confirm with `ls /tmp/ca.crt /tmp/server-primary.crt /tmp/server-primary.key` and remove any remaining copy. Do not run a broad `ls /tmp/*.crt /tmp/*.key` for this check; it can match files unrelated to this installation. Do not authorize deleting any other `/tmp/*.crt` or `/tmp/*.key` file on that basis. |
-| `/tmp` certificate staging files on the secondary (Phase 5) | **DELETE** if not already removed in Phase 5; confirm with `ls /tmp/ca.crt /tmp/server-secondary.crt /tmp/server-secondary.key` and remove any remaining copy. Same restriction: do not use a broad wildcard, and do not delete any other `/tmp/*.crt`/`/tmp/*.key` file. |
+| `/tmp` certificate staging files on the primary (Phase 5) | **DELETE** if not already removed in Phase 5. Check first with `ls /tmp/ca.crt /tmp/server-primary.crt /tmp/server-primary.key`; if any are still present, remove exactly those three named files: `sudo rm -f /tmp/ca.crt /tmp/server-primary.crt /tmp/server-primary.key`. Then verify: `test ! -e /tmp/ca.crt && test ! -e /tmp/server-primary.crt && test ! -e /tmp/server-primary.key && echo "primary-stage-removed"`, expecting `primary-stage-removed`. Do not run a broad `ls`/`rm` with a `/tmp/*.crt`/`/tmp/*.key` wildcard for this check; it can match files unrelated to this installation. Do not authorize deleting any other `/tmp/*.crt` or `/tmp/*.key` file on that basis. |
+| `/tmp` certificate staging files on the secondary (Phase 5) | **DELETE** if not already removed in Phase 5. Check first with `ls /tmp/ca.crt /tmp/server-secondary.crt /tmp/server-secondary.key`; if any are still present, remove exactly those three named files: `sudo rm -f /tmp/ca.crt /tmp/server-secondary.crt /tmp/server-secondary.key`. Then verify: `test ! -e /tmp/ca.crt && test ! -e /tmp/server-secondary.crt && test ! -e /tmp/server-secondary.key && echo "secondary-stage-removed"`, expecting `secondary-stage-removed`. Same restriction: do not use a broad wildcard, and do not delete any other `/tmp/*.crt`/`/tmp/*.key` file. |
 | Installed node private keys (`/etc/xroad/postgresql/server.key` on each node) | **KEEP PERMANENTLY**; PostgreSQL needs these in place for `serverconf` TLS. Never delete these. |
 | Workstation copies of the node private keys (`ha-ca/server-primary.key`, `ha-ca/server-secondary.key`) | **DELETE** (or move to approved secure key storage if your organization's lifecycle plan expects to reissue from these specific files later), using your organization's approved secure secret/key-material handling process, once both nodes' installed copies are in place and verified (Phase 5's `openssl verify`/`x509` check). Do not leave these extra workstation copies in place indefinitely after a successful transfer; the installed copies under `/etc/xroad/postgresql/` are the ones this deployment actually uses going forward. |
 | Workstation node certificate copies (`ha-ca/server-primary.crt`, `ha-ca/server-secondary.crt`) | **KEEP FOR ROLLBACK** until your organization's own post-acceptance retention period has elapsed, then dispose of per your organization's standard retention policy. These files are not required to issue a replacement certificate later; the CA can reissue a node certificate from its own key regardless. Retain these copies only for rollback, audit, evidence, or comparison against a future certificate, per your organization's own policy, not because they are needed for reissuance. Certificates are not secret; this is a lower-sensitivity item than the private keys above. |

@@ -40,7 +40,7 @@ Before changing anything, identify which node (primary or secondary) is affected
 
 **Expected result:** `connection-ok` printed, no password prompt, no host-key prompt (the host key should already be trusted via the verified `known_hosts` entry from Phase 11).
 
-**Safe remediation:** confirm the secondary's public key is present, on one line, in the primary's `authorized_keys` (`sudo cat /home/xroad-slave/.ssh/authorized_keys` on the primary); confirm `authorized_keys` is owned by `root`, group `xroad` (not a separate `xroad-slave` group, which does not exist), mode `0640` (`sudo ls -l /home/xroad-slave/.ssh/authorized_keys`; the `xroad-slave` account itself must not be able to write to it); confirm the `xroad-slave` account's shell is `/bin/bash`, not a `nologin` shell, since `rsync` over SSH requires `sshd` to execute the remote `rsync` command, which a `nologin` shell would block (`getent passwd xroad-slave`); re-verify the primary's host-key fingerprint (`ssh-keygen -lf <keyfile> -E sha256`) against the `<PRIMARY_SSH_FINGERPRINT>` recorded in the HA Deployment Profile §2 before re-adding it to `known_hosts` if it changed for a legitimate reason (for example, the primary was rebuilt). If the key never arrived on the primary at all, repeat the Phase 11 verified transfer/install procedure in full, using `<SECONDARY_OS_ADMIN_USER>` and `<PRIMARY_OS_ADMIN_USER>` (the SSH/`sudo`-capable operating-system administrators, not `<PRIMARY_ADMIN_USER>`/`<SECONDARY_ADMIN_USER>`, which are the X-Road Admin UI identities) exactly as that phase documents it, rather than pasting the key by hand or reconstructing an abbreviated version of the command here.
+**Safe remediation:** confirm the secondary's public key is present, on one line, in the primary's `authorized_keys` (`sudo cat /home/xroad-slave/.ssh/authorized_keys` on the primary); confirm `authorized_keys` is owned by `root`, group `xroad` (not a separate `xroad-slave` group, which does not exist), mode `0640` (`sudo ls -l /home/xroad-slave/.ssh/authorized_keys`; the `xroad-slave` account itself must not be able to write to it); confirm the `xroad-slave` account's shell is `/bin/bash`, not a `nologin` shell, since `rsync` over SSH requires `sshd` to execute the remote `rsync` command, which a `nologin` shell would block (`getent passwd xroad-slave`); if the primary's host key changed for a legitimate reason (for example, the primary was rebuilt), do not simply accept the new key: repeat the exact Phase 11 host-key retrieval and fingerprint-verification procedure for your platform (the `ssh-keyscan`/`ssh-keygen -lf ... -E sha256` commands, using the same temporary filenames that phase documents), compare the result against the `<PRIMARY_SSH_FINGERPRINT>` recorded in the HA Deployment Profile §2 (updated with the new, independently reconfirmed value first), and only then re-add it to `known_hosts`. If the key never arrived on the primary at all, repeat the Phase 11 verified transfer/install procedure in full, using `<SECONDARY_OS_ADMIN_USER>` and `<PRIMARY_OS_ADMIN_USER>` (the SSH/`sudo`-capable operating-system administrators, not `<PRIMARY_ADMIN_USER>`/`<SECONDARY_ADMIN_USER>`, which are the X-Road Admin UI identities) exactly as that phase documents it, rather than pasting the key by hand or reconstructing an abbreviated version of the command here.
 
 **When to STOP:** never accept a host-key prompt you cannot independently verify merely to make the error go away.
 
@@ -60,7 +60,34 @@ Before changing anything, identify which node (primary or secondary) is affected
 
 **Expected result:** `type=master` on the primary, `type=slave` on the secondary, never the same value on both.
 
-**Safe remediation:** confirm the `rsync`/`xroad-sync.service` exclusion list includes `--exclude "/conf.d/node.ini"` exactly as documented; if it was already synchronized incorrectly, manually re-create the correct content on the affected node (`sudo tee /etc/xroad/conf.d/node.ini` with the correct `type=`, then `sudo chown xroad:xroad` / `sudo chmod 640` as in Phase 14) and restart `xroad-confclient`/`xroad-signer`/`xroad-proxy` on that node, then re-check immediately after the next sync cycle to confirm the exclusion is actually working.
+**Safe remediation:** confirm the `rsync`/`xroad-sync.service` exclusion list includes `--exclude "/conf.d/node.ini"` exactly as documented. If it was already synchronized incorrectly, re-create the correct content on the affected node with the exact Phase 14 command for that node's role, do not invent the content yourself:
+
+```bash
+# If the affected node must be the primary (type=master):
+sudo tee /etc/xroad/conf.d/node.ini >/dev/null <<'EOF'
+[node]
+type=master
+EOF
+```
+
+```bash
+# If the affected node must be the secondary (type=slave):
+sudo tee /etc/xroad/conf.d/node.ini >/dev/null <<'EOF'
+[node]
+type=slave
+EOF
+```
+
+Run only the block matching that node's actual role; then, on that node:
+
+```bash
+sudo chown xroad:xroad /etc/xroad/conf.d/node.ini
+sudo chmod 640 /etc/xroad/conf.d/node.ini
+sudo cat /etc/xroad/conf.d/node.ini
+sudo stat -c '%U:%G %a %n' /etc/xroad/conf.d/node.ini
+```
+
+Expected result: the role value matches what you intended; ownership `xroad:xroad`, mode `640` (matching Phase 14's own verification). Then restart `xroad-confclient`/`xroad-signer`/`xroad-proxy` on that node, and re-check immediately after the next sync cycle to confirm the exclusion is actually working.
 
 **When to STOP:** if both nodes show `type=master` (or both `type=slave`) and you are not certain which one is actually serving as the registered primary, do not guess; confirm against `serverconf`'s actual write/replication direction (above) before correcting either file.
 
@@ -90,7 +117,7 @@ Before changing anything, identify which node (primary or secondary) is affected
 
 **Expected result:** `xroad-confclient` active; valid global configuration present after the one-time bootstrap synchronization (installation guide, the phase immediately after primary Initial Configuration); no download/refresh error in the log. File timestamps in `/etc/xroad/globalconf` may optionally be compared again a few minutes later as supplementary evidence that `xroad-confclient` is independently refreshing it, but an unchanged timestamp is not by itself a failure; this document has not established exactly when a refresh is guaranteed to touch every file's timestamp for every build.
 
-**Safe remediation:** confirm the **one-time bootstrap** `rsync` (run manually, once, after Initial Configuration on the primary) did not exclude `/globalconf`. This is different from the **ongoing scheduled** `xroad-sync.service`, which always excludes `/globalconf` by design, so that it does not fight with the secondary's own `confclient`. If the bootstrap step was skipped or run with the wrong exclusion list, re-run it manually with the bootstrap exclusion set (excluding only `db.properties`, `/postgresql`, `/conf.d/node.ini`, and `/gpghome`, not `/globalconf`).
+**Safe remediation:** confirm the **one-time bootstrap** `rsync` (run manually, once, after Initial Configuration on the primary) did not exclude `/globalconf`. This is different from the **ongoing scheduled** `xroad-sync.service`, which always excludes `/globalconf` by design, so that it does not fight with the secondary's own `confclient`. If the bootstrap step was skipped or run with the wrong exclusion list, **repeat the exact Phase 19 one-time bootstrap command** for your platform ([Ubuntu HA Phase 19](../ubuntu/high-availability-installation.md), [RHEL HA Phase 19](../rhel/high-availability-installation.md)) verbatim, with its documented exclusion list exactly as that phase states it. Do not paraphrase or reconstruct this `rsync --delete` command here: it is a destructive, deletion-capable command, and repeating an approximation of it from memory risks a different exclusion list (and therefore different deleted/overwritten files) than the one that phase actually validated.
 
 **When to STOP:** never open the secondary's own Admin UI first-time setup sequence or tell it to independently import the CamDX configuration anchor as a way to "fix" this; that would initialize it as a separate logical Security Server, which this architecture does not use.
 
@@ -156,7 +183,19 @@ Before changing anything, identify which node (primary or secondary) is affected
 
 ## RHEL: `firewalld` blocking `22`/`5433`/`5588`/`4000`/`5500`/`5577`
 
-**Check:** `sudo firewall-cmd --zone=<ZONE> --list-rich-rules` on the affected node, compared against the HA Deployment Profile §5 fields and the installation guide's firewall commands.
+**Check:** run only the command for the affected node, not both:
+
+```bash
+# Primary:
+sudo firewall-cmd --zone=<PRIMARY_ZONE> --list-rich-rules
+```
+
+```bash
+# Secondary:
+sudo firewall-cmd --zone=<SECONDARY_ZONE> --list-rich-rules
+```
+
+Compare the output against the HA Deployment Profile §5 fields and the installation guide's firewall commands.
 
 **Expected result:** confirm the direction matches how each protocol actually connects:
 
