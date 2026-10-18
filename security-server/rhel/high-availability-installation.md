@@ -1275,7 +1275,7 @@ sudo firewall-cmd --permanent --zone=<SECONDARY_ZONE> --add-rich-rule='rule fami
 sudo firewall-cmd --reload
 ```
 
-- Forward your deployment's client-proxy port (`<CLIENT_PROXY_PORT>`) to both nodes, **only if** your HA Deployment Profile §2 records "Client-proxy traffic forwarded through VIP" as `YES`. If it records `NO`, skip the two command blocks below and continue to the next bullet; consumers in that case reach the client-proxy port some other way this profile field does not need to describe.
+- Forward your deployment's client-proxy port (`<CLIENT_PROXY_PORT>`) to both nodes, **only if** your HA Deployment Profile §2 records "Client-proxy traffic forwarded through VIP" as `YES`. If it records `NO`, skip the two command blocks below and continue to the next bullet. This HA procedure does not define an alternate consumer-to-client-proxy path. If your deployment requires one, it must be separately defined and approved as stated in the HA Deployment Profile §2. Do not infer or invent that path here.
 
 ```bash
 # Primary (use the source CIDR recorded for the primary's own backend):
